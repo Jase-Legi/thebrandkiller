@@ -1,0 +1,7 @@
+{
+  "defaultRate": 0.05,
+  "minimumPayout": 10,
+  "payoutSchedule": "monthly",
+  "cookieDuration": 60,
+  "terms": "Standard affiliate terms apply"
+}

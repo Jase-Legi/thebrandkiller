@@ -1,0 +1,18 @@
+{
+  "id": 4,
+  "userId": 4,
+  "email": "hsghkjgjkhg@JHKGJH.com",
+  "status": "active",
+  "commissionRate": 0.05,
+  "totalCommissions": 0,
+  "pendingPayout": 0,
+  "commissions": [],
+  "referrals": [],
+  "joinedDate": "2026-01-02T02:51:48.832Z",
+  "lastPayoutDate": null,
+  "application": {
+    "date": "2026-01-02T02:51:48.832Z",
+    "status": "pending",
+    "notes": "Auto-generated from registration"
+  }
+}
