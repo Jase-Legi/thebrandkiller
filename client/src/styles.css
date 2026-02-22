@@ -1,0 +1,408 @@
+:root {
+  /* Dark Theme (Default) */
+  --background-primary: #000;
+  --background-secondary: #111;
+  --background-card: #111;
+  --text-primary: #fff;
+  --text-secondary: #aaa;
+  --text-muted: #777;
+  --border-color: #000;
+  --border-light: #333;
+  --accent-primary: #fff;
+  --accent-secondary: #0f0;
+  --accent-danger: #ff4444;
+  --accent-warning: #ffaa00;
+  --accent-info: #fff;
+  --link-color: #fff;
+  --input-background: #fff;
+  --input-text: #000;
+  --button-primary-bg: #fff;
+  --button-primary-text: #000;
+  --button-secondary-bg: transparent;
+  --button-secondary-text: #fff;
+  --shadow-color: rgba(255, 255, 255, 0.1);
+  --success-color: #0f0;
+  --error-color: #ff4444;
+  --warning-color: #ffaa00;
+}
+
+.light-theme {
+  /* Light Theme Overrides */
+  --background-primary: #f5f5f5;
+  --background-secondary: #fff;
+  --background-card: #fff;
+  --text-primary: #333;
+  --text-secondary: #666;
+  --text-muted: #999;
+  --border-color: #e0e0e0;
+  --border-light: #dee2e6;
+  --accent-primary: #333;
+  --accent-secondary: #28a745;
+  --accent-danger: #dc3545;
+  --accent-warning: #ffc107;
+  --accent-info: #17a2b8;
+  --link-color: #333;
+  --input-background: #fff;
+  --input-text: #495057;
+  --button-primary-bg: #28a745;
+  --button-primary-text: #fff;
+  --button-secondary-bg: #fff;
+  --button-secondary-text: #6c757d;
+  --shadow-color: rgba(0, 0, 0, 0.15);
+  --success-color: #28a745;
+  --error-color: #dc3545;
+  --warning-color: #ffc107;
+}
+
+/* Global Styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  margin: 0;
+  font-family: 'Courier New', Courier, monospace;
+  background: var(--background-primary);
+  color: var(--text-primary);
+  padding: 16px;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  border: 1px solid #000;
+  padding: 16px;
+  background: #000;
+  position: relative;
+}
+
+.container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 1px solid #fff;
+  pointer-events: none;
+  opacity: 0.1;
+}
+
+.card {
+  border: 1px solid #000;
+  padding: 16px;
+  margin: 8px 0;
+  background: #111;
+  position: relative;
+}
+
+.card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #fff;
+  opacity: 0.2;
+}
+
+button {
+  border: 1px solid #000;
+  background: #fff;
+  color: #000;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.3s ease;
+}
+
+button:hover {
+  background: #000;
+  color: #fff;
+  border-color: #fff;
+}
+
+input, select {
+  border: 1px solid #000;
+  background: #fff;
+  color: #000;
+  box-sizing: border-box !important;
+  padding: 8px;
+  margin: 4px;
+  transition: all 0.3s ease;
+}
+
+select {
+  cursor: pointer !important;
+}
+/* Animations */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes loading {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #222;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #777;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .container {
+    padding: 8px;
+  }
+  
+  .product-detail-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Navigation Styles */
+.main-nav {
+  border-bottom: 1px solid #000;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.nav-link {
+  color: #fff;
+  text-decoration: none;
+  transition: color 0.3s;
+}
+
+.nav-link:hover {
+  color: #ccc;
+}
+
+.admin-nav-link {
+  color: #ff4444;
+  text-decoration: none;
+  font-weight: bold;
+  margin-right: 16px;
+}
+
+.admin-nav-link:hover {
+  color: #ff6666;
+}
+
+.cart-link {
+  color: #fff;
+}
+
+.logout-btn {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+}
+
+.logout-btn:hover {
+  color: #ccc;
+}
+
+/* Add to styles.css */
+img[src="/placeholder-image.jpg"] {
+  background: linear-gradient(45deg, #222, #444);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  font-family: 'Courier New', monospace;
+}
+
+img[src="/placeholder-image.jpg"]::after {
+  content: 'Image not available';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #666;
+}
+
+
+
+/* Light Theme Overrides */
+.light-theme {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.light-theme .container {
+  background: #fff;
+  border-color: #e0e0e0;
+}
+
+.light-theme .container::before {
+  border-color: #333;
+  opacity: 0.05;
+}
+
+.light-theme .card {
+  background: #f8f9fa;
+  border-color: #e0e0e0;
+}
+
+.light-theme .card::after {
+  background: #333;
+  opacity: 0.1;
+}
+
+.light-theme button {
+  background: #333;
+  color: #fff;
+  border-color: #333;
+}
+
+.light-theme button:hover {
+  background: #555;
+  color: #fff;
+  border-color: #555;
+}
+
+.light-theme input,
+.light-theme select {
+  border-color: #ccc;
+  background: #fff;
+  color: #333;
+}
+
+.light-theme input:focus,
+.light-theme select:focus {
+  border-color: #333;
+}
+
+.light-theme select {
+  cursor: pointer !important;
+}
+
+/* Navigation */
+.light-theme .main-nav {
+  border-bottom-color: #e0e0e0;
+}
+
+.light-theme .nav-link {
+  color: #333;
+}
+
+.light-theme .nav-link:hover {
+  color: #666;
+}
+
+.light-theme .admin-nav-link {
+  color: #dc3545;
+}
+
+.light-theme .admin-nav-link:hover {
+  color: #c82333;
+}
+
+.light-theme .cart-link {
+  color: #333;
+}
+
+.light-theme .logout-btn {
+  color: #333;
+}
+
+.light-theme .logout-btn:hover {
+  color: #666;
+}
+
+/* Scrollbar */
+.light-theme ::-webkit-scrollbar-track {
+  background: #f0f0f0;
+}
+
+.light-theme ::-webkit-scrollbar-thumb {
+  background: #bbb;
+}
+
+.light-theme ::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+/* Placeholder image */
+.light-theme img[src="/placeholder-image.jpg"] {
+  background: linear-gradient(45deg, #e0e0e0, #f0f0f0);
+  color: #999;
+}
+
+/* Fix for .logout-btn in light theme */
+.light-theme .logout-btn {
+  background: transparent !important;
+  border: none !important;
+  color: #333 !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  text-align: left !important;
+}
+
+.light-theme .logout-btn:hover {
+  color: #666 !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Make sure .logout-btn in nav doesn't have any border/background in light theme */
+.light-theme nav .logout-btn {
+  all: unset;
+  cursor: pointer;
+  color: #333;
+}
+
+.light-theme nav .logout-btn:hover {
+  color: #666;
+  background: transparent !important;
+}

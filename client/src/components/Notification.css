@@ -1,0 +1,122 @@
+/* Notification Styles */
+.notification-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.notification {
+  background: #111;
+  border-left: 4px solid;
+  color: #fff;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 300px;
+  max-width: 400px;
+  animation: slideIn 0.3s ease-out;
+}
+
+.notification.slide-out {
+  animation: slideOut 0.3s ease-out forwards;
+}
+
+.notification-icon {
+  font-size: 20px;
+}
+
+.notification-content {
+  flex: 1;
+}
+
+.notification-title {
+  font-size: 14px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.notification-message {
+  font-size: 13px;
+  color: #ccc;
+}
+
+.notification-close {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Notification Types */
+.notification-success {
+  border-left-color: #0f0;
+}
+
+.notification-error {
+  border-left-color: #ff4444;
+}
+
+.notification-warning {
+  border-left-color: #ffaa00;
+}
+
+.notification-info {
+  border-left-color: #fff;
+}
+
+/* Animations */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* Light Theme Overrides for Notifications */
+.light-theme .notification {
+  background: #fff;
+  color: #333;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.light-theme .notification-message {
+  color: #666;
+}
+
+.light-theme .notification-close {
+  color: #999;
+}
+
+.light-theme .notification-close:hover {
+  color: #666;
+}
