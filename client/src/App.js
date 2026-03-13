@@ -16,12 +16,12 @@ import ThemeToggle from './components/ThemeToggle';
 import Login from './pages/Login';
 import ProductDetail from './pages/ProductDetail';
 import { ThemeProvider } from './components/ThemeContext';
+import { BACKEND_URL } from './config';
 
 const stripePromise = loadStripe('pk_test_51YourPublishableKeyHere1234567890');
 
 const axiosInstance = axios.create({
-  // baseURL: 'http://localhost:5000'
-  baseURL: 'http://72.76.207.228:5000'
+  baseURL: BACKEND_URL
 });
 
 axiosInstance.interceptors.response.use(

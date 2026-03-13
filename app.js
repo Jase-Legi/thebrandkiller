@@ -8,7 +8,8 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const EasyPostClient = require('@easypost/api');
-
+const axios = require('axios'); // Added for Printful/Printify API calls
+const clientURL = (process.env.NODE_ENV === 'production') ? 'https://thebrandkiller.netlify.app' : 'http://localhost:3000';
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -24,11 +25,6 @@ const IV_LENGTH = 16;
 const JWT_SECRET = process.env.JWT_SECRET || 'fallbacksecret';
 
 // Create directories
-// ['users', 'products', 'orders'].forEach(type => {
-//   fs.mkdirSync(`${DATA_DIR}/${type}s`, { recursive: true });
-// });
-// fs.mkdirSync(MEDIA_DIR, { recursive: true });
-
 console.log('Checking directories...');
 ['user', 'product', 'order'].forEach(type => {
   const dirPath = `${DATA_DIR}/${type}s`;
@@ -65,7 +61,7 @@ if (!fs.existsSync(AFFILIATE_DIR)) {
   fs.mkdirSync(AFFILIATE_DIR, { recursive: true });
 }
 
-// Encryption
+// Encryption helpers
 function encrypt(text) {
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPT_KEY, iv);
@@ -86,7 +82,7 @@ function decrypt(encryptedText) {
   return decrypted;
 }
 
-// Sequential ID helper
+// ID helper
 function getNextId(type) {
   const dir = `${DATA_DIR}/${type}s`;
   if (!fs.existsSync(dir)) return 1;
@@ -107,8 +103,6 @@ function saveEntity(type, data) {
   const paddedId = String(id).padStart(4, '0');
   const filePath = `${DATA_DIR}/${type}s/${type}-${paddedId}.enc.json`;
   
-  // Ensure directory exists before writing
-  // Create directories - CORRECTED VERSION
   const ensureDirectories = () => {
     const dirs = [
       `${DATA_DIR}/users`,
@@ -116,7 +110,6 @@ function saveEntity(type, data) {
       `${DATA_DIR}/orders`,
       MEDIA_DIR
     ];
-    
     dirs.forEach(dir => {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
@@ -124,8 +117,6 @@ function saveEntity(type, data) {
       }
     });
   };
-
-  // Call this function
   ensureDirectories();
   
   const jsonStr = JSON.stringify(data);
@@ -191,7 +182,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = /jpeg|jpg|png|gif|webp|mp4|webm|mov/;
     const valid = allowed.test(path.extname(file.originalname).toLowerCase()) &&
@@ -220,7 +211,7 @@ const admin = (req, res, next) => {
   next();
 };
 
-// Media upload route (admin only)
+// Media upload (admin only)
 app.post('/admin/upload-media', auth, admin, upload.array('media', 20), (req, res) => {
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({ msg: 'No files uploaded' });
@@ -229,7 +220,7 @@ app.post('/admin/upload-media', auth, admin, upload.array('media', 20), (req, re
   res.json({ msg: 'Upload successful', files: filePaths });
 });
 
-// Enhanced register endpoint with affiliate support
+// Register
 app.post('/register', (req, res) => {
   const { email, password, roleRequested = 'user' } = req.body;
   if (!email || !password) return res.status(400).json({ msg: 'Missing credentials' });
@@ -237,12 +228,10 @@ app.post('/register', (req, res) => {
   const users = loadEntities('user');
   if (users.find(u => u.email === email)) return res.status(400).json({ msg: 'Email exists' });
   
-  // Validate role
   let role = 'user';
   if (roleRequested === 'affiliate') {
     role = 'affiliate';
   } else if (roleRequested === 'admin') {
-    // Only allow admin creation if no admins exist yet (first-time setup)
     const admins = users.filter(u => u.role === 'admin');
     if (admins.length === 0) {
       role = 'admin';
@@ -261,15 +250,14 @@ app.post('/register', (req, res) => {
     status: 'active'
   });
   
-  // If affiliate registration, create pending affiliate record
   if (role === 'affiliate') {
     try {
       const affiliateData = {
         id: user.id,
         userId: user.id,
         email: email,
-        status: 'pending', // Requires admin approval
-        commissionRate: 0.10, // Default 10%
+        status: 'pending',
+        commissionRate: 0.10,
         totalCommissions: 0,
         pendingPayout: 0,
         commissions: [],
@@ -283,7 +271,6 @@ app.post('/register', (req, res) => {
         }
       };
       
-      // Ensure affiliate directory exists
       if (!fs.existsSync(AFFILIATE_DIR)) {
         fs.mkdirSync(AFFILIATE_DIR, { recursive: true });
       }
@@ -292,7 +279,6 @@ app.post('/register', (req, res) => {
       fs.writeFileSync(affiliateFile, JSON.stringify(affiliateData, null, 2));
     } catch (err) {
       console.error('Failed to create affiliate record:', err);
-      // Continue with user registration even if affiliate record fails
     }
   }
   
@@ -303,16 +289,7 @@ app.post('/register', (req, res) => {
   });
 });
 
-// New endpoint for affiliate link generation (affiliate only)
-app.get('/affiliate/link/:productId', auth, (req, res) => {
-  if (req.user.role !== 'affiliate') return res.status(403).json({ msg: 'Not affiliate' });
-  
-  const { productId } = req.params;
-  const affiliateId = req.user.id; // From decoded JWT
-  const link = `http://localhost:3000/product/${productId}?aff=${affiliateId}`;
-  res.json({ link });
-});
-
+// Login
 app.post('/login', async (req, res) => {
   const { email, password, roleRequested } = req.body;
   const users = loadEntities('user');
@@ -327,11 +304,11 @@ app.post('/login', async (req, res) => {
   res.json({ token, role: user.role });
 });
 
+// Products (public)
 app.get('/products', (req, res) => {
   try {
     let products = loadEntities('product');
     
-    // Ensure all products have consistent data structure
     products = products.map(product => ({
       ...product,
       price: typeof product.price === 'string' ? parseFloat(product.price) : product.price,
@@ -353,36 +330,30 @@ app.get('/products', (req, res) => {
   }
 });
 
-
+// Admin product CRUD
 app.post('/admin/products', auth, admin, (req, res) => {
   try {
     const productData = req.body;
     
-    // Ensure proper data types
     const processedData = {
       ...productData,
-      // Convert prices to numbers
       price: parseFloat(productData.price) || 0,
       promoPrice: productData.promoPrice ? parseFloat(productData.promoPrice) : null,
       weight: parseFloat(productData.weight) || 0,
       estimatedShipping: productData.estimatedShipping ? parseFloat(productData.estimatedShipping) : null,
-      
-      // Ensure options exist as arrays
       options: {
         sizes: Array.isArray(productData.options?.sizes) ? productData.options.sizes : [],
         colors: Array.isArray(productData.options?.colors) ? productData.options.colors : []
       },
-      
-      // Ensure health data is properly structured
       health: productData.category === 'supplements' ? {
         ingredients: Array.isArray(productData.health?.ingredients) ? productData.health.ingredients : [],
         dosage: productData.health?.dosage || '',
         form: productData.health?.form || '',
         allergens: Array.isArray(productData.health?.allergens) ? productData.health.allergens : []
       } : { ingredients: [], dosage: '', form: '', allergens: [] },
-      
-      // Ensure variantImages exists
-      variantImages: productData.variantImages || { color: {}, size: {} }
+      variantImages: productData.variantImages || { color: {}, size: {} },
+      platformProductId: productData.platformProductId || '',
+      platformProductData: productData.platformProductData || null,
     };
     
     const product = saveEntity('product', processedData);
@@ -403,33 +374,27 @@ app.put('/admin/products/:id', auth, admin, (req, res) => {
   try {
     const productData = req.body;
     
-    // Ensure proper data types
     const processedData = {
       ...existing,
       ...productData,
       id,
-      // Convert prices to numbers
       price: parseFloat(productData.price) || existing.price,
       promoPrice: productData.promoPrice ? parseFloat(productData.promoPrice) : null,
       weight: parseFloat(productData.weight) || existing.weight,
       estimatedShipping: productData.estimatedShipping ? parseFloat(productData.estimatedShipping) : null,
-      
-      // Ensure options exist as arrays
       options: {
         sizes: Array.isArray(productData.options?.sizes) ? productData.options.sizes : existing.options?.sizes || [],
         colors: Array.isArray(productData.options?.colors) ? productData.options.colors : existing.options?.colors || []
       },
-      
-      // Ensure health data is properly structured
       health: productData.category === 'supplements' ? {
         ingredients: Array.isArray(productData.health?.ingredients) ? productData.health.ingredients : [],
         dosage: productData.health?.dosage || '',
         form: productData.health?.form || '',
         allergens: Array.isArray(productData.health?.allergens) ? productData.health.allergens : []
       } : { ingredients: [], dosage: '', form: '', allergens: [] },
-      
-      // Ensure variantImages exists
-      variantImages: productData.variantImages || existing.variantImages || { color: {}, size: {} }
+      variantImages: productData.variantImages || existing.variantImages || { color: {}, size: {} },
+      platformProductId: productData.platformProductId || existing.platformProductId || '',
+      platformProductData: productData.platformProductData || existing.platformProductData || null,
     };
     
     saveEntity('product', processedData);
@@ -446,6 +411,7 @@ app.delete('/admin/products/:id', auth, admin, (req, res) => {
   res.json({ msg: 'Product deleted' });
 });
 
+// Shipping preview
 app.post('/admin/shipping-preview', auth, admin, async (req, res) => {
   const { weight, fromZip = '90210', toZip = '10001' } = req.body;
   if (!weight || !easyPostClient) return res.status(400).json({ msg: 'Config missing' });
@@ -469,122 +435,160 @@ app.post('/admin/shipping-preview', auth, admin, async (req, res) => {
   }
 });
 
-app.post('/orders', (req, res) => {
-  const { affiliateId } = req.query; // From URL param
-  const orderData = { ...req.body, affiliateId: affiliateId ? parseInt(affiliateId) : null };
-  const order = saveEntity('order', orderData);
-  
-  if (affiliateId) {
-    // Record commission (example: 10% default)
-    const affiliates = loadAllEntities('affiliate');
-    const aff = affiliates.find(a => a.userId === parseInt(affiliateId)) || saveEntity('affiliate', { userId: parseInt(affiliateId), commissions: [] });
-    const total = order.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
-    const commission = total * 0.10; // Default 10%
-    aff.commissions.push({ orderId: order.id, amount: commission });
-    saveEntity('affiliate', aff, aff.id); // Update
-  }
-  
-  res.json({ msg: 'Order created', order });
-});
-
-// Add this route for serving media thumbnails
-app.get('/media/thumbnail/:filename', (req, res) => {
-  const { filename } = req.params;
-  const filePath = path.join(MEDIA_DIR, filename);
-  
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).send('File not found');
-  }
-  
-  // For now, just serve the file - you can add image resizing here later
-  res.sendFile(filePath);
-});
-
-// Add this route after other routes but before app.listen()
-app.post('/admin/upload-media', auth, admin, upload.array('media', 20), async (req, res) => {
+// Printful products (catalog)
+app.get('/admin/printful/products', auth, admin, async (req, res) => {
   try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ msg: 'No files uploaded' });
+    const apiKey = process.env.PRINTFUL_API_KEY;
+    if (!apiKey) {
+      return res.status(400).json({ msg: 'Printful API key not configured' });
     }
-    
-    const uploadedFiles = req.files.map(file => ({
-      url: `/media/${file.filename}`,
-      filename: file.filename,
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size
-    }));
-    
-    res.json({ 
-      success: true, 
-      message: `Uploaded ${uploadedFiles.length} file(s)`,
-      files: uploadedFiles
+    const response = await axios.get('https://api.printful.com/products', {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
     });
-  } catch (error) {
-    console.error('Upload error:', error);
-    res.status(500).json({ msg: 'Upload failed', error: error.message });
-  }
-});
-
-app.post('/register-affiliate', auth, async (req, res) => {
-  try {
-    const user = req.user;
-    
-    // Check if user is already an affiliate
-    const affiliateFile = `${AFFILIATE_DIR}/affiliate-${user.id}.json`;
-    if (fs.existsSync(affiliateFile)) {
-      return res.status(400).json({ msg: 'Already registered as affiliate' });
-    }
-    
-    // Create affiliate record
-    const affiliateData = {
-      id: user.id,
-      userId: user.id,
-      email: user.email,
-      status: 'pending',
-      commissionRate: 0.10, // Default 10%
-      totalCommissions: 0,
-      pendingPayout: 0,
-      commissions: [],
-      referrals: [],
-      joinedDate: new Date().toISOString(),
-      lastPayoutDate: null
-    };
-    
-    fs.writeFileSync(affiliateFile, JSON.stringify(affiliateData, null, 2));
-    
-    // Update user role
-    const userFile = `${DATA_DIR}/users/user-${String(user.id).padStart(4, '0')}.enc.json`;
-    if (fs.existsSync(userFile)) {
-      const encrypted = fs.readFileSync(userFile, 'utf8');
-      const userData = JSON.parse(decrypt(encrypted));
-      userData.role = 'affiliate';
-      const updatedEncrypted = encrypt(JSON.stringify(userData));
-      fs.writeFileSync(userFile, updatedEncrypted);
-    }
-    
-    res.json({ msg: 'Affiliate registration submitted for approval', affiliate: affiliateData });
+    const products = response.data.result.map(p => ({
+      id: p.id,
+      name: p.name,
+      thumbnail: p.thumbnail_url,
+      description: p.description,
+    }));
+    res.json(products);
   } catch (err) {
-    console.error('Affiliate registration error:', err);
-    res.status(500).json({ msg: 'Registration failed' });
+    console.error('Printful API error:', err.response?.data || err.message);
+    res.status(500).json({ msg: 'Failed to fetch Printful products' });
   }
 });
 
-// Get affiliate link for specific product
+// Get detailed Printful product info (variants, images)
+app.get('/admin/printful/product/:productId', auth, admin, async (req, res) => {
+  try {
+    const apiKey = process.env.PRINTFUL_API_KEY;
+    if (!apiKey) {
+      return res.status(400).json({ msg: 'Printful API key not configured' });
+    }
+    const { productId } = req.params;
+    const response = await axios.get(`https://api.printful.com/products/${productId}`, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
+    });
+    const productData = response.data.result;
+    
+    // Extract variants (sizes, colors) and images
+    const variants = productData.variants || [];
+    const sizes = [...new Set(variants.map(v => v.size).filter(Boolean))];
+    const colors = [...new Set(variants.map(v => v.color).filter(Boolean))];
+    const images = variants.map(v => v.image).filter(Boolean);
+    // Also include main product image if available
+    if (productData.image && !images.includes(productData.image)) {
+      images.unshift(productData.image);
+    }
+
+    const detailedProduct = {
+      id: productData.id,
+      name: productData.name,
+      description: productData.description,
+      type: productData.type_name, // e.g., "T-Shirt"
+      category: mapPrintfulCategory(productData.type_name), // map to our categories
+      sizes,
+      colors,
+      images,
+      // Optionally include variant-specific images mapping
+      variantImages: buildVariantImages(variants)
+    };
+
+    res.json(detailedProduct);
+  } catch (err) {
+    console.error('Printful product detail error:', err.response?.data || err.message);
+    res.status(500).json({ msg: 'Failed to fetch Printful product details' });
+  }
+});
+
+// Helper to map Printful type to our category
+function mapPrintfulCategory(printfulType) {
+  const typeLower = (printfulType || '').toLowerCase();
+  if (typeLower.includes('shirt') || typeLower.includes('hoodie') || typeLower.includes('sweatshirt') || typeLower.includes('hat')) {
+    return 'clothing';
+  }
+  if (typeLower.includes('shoe')) return 'shoes';
+  if (typeLower.includes('sticker')) return 'stickers';
+  if (typeLower.includes('mug') || typeLower.includes('poster') || typeLower.includes('phone case') || typeLower.includes('tote')) {
+    return 'accessory';
+  }
+  return 'clothing'; // default
+}
+
+// Helper to build variantImages mapping (color -> image, size -> image)
+function buildVariantImages(variants) {
+  const variantImages = { color: {}, size: {} };
+  variants.forEach(v => {
+    if (v.color && v.image) {
+      variantImages.color[v.color] = v.image;
+    }
+    if (v.size && v.image) {
+      variantImages.size[v.size] = v.image;
+    }
+  });
+  return variantImages;
+}
+
+// Printify products
+app.get('/admin/printify/products', auth, admin, async (req, res) => {
+  try {
+    const apiKey = process.env.PRINTIFY_API_KEY;
+    const shopId = process.env.PRINTIFY_SHOP_ID;
+    if (!apiKey || !shopId) {
+      return res.status(400).json({ msg: 'Printify API key or shop ID not configured' });
+    }
+    const response = await axios.get(`https://api.printify.com/v1/shops/${shopId}/products.json`, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
+    });
+    const products = response.data.data.map(p => ({
+      id: p.id,
+      name: p.title,
+      thumbnail: p.images?.[0]?.src,
+      description: p.description,
+    }));
+    res.json(products);
+  } catch (err) {
+    console.error('Printify API error:', err.response?.data || err.message);
+    res.status(500).json({ msg: 'Failed to fetch Printify products' });
+  }
+});
+
+// Create payment intent for Stripe
+app.post('/create-payment-intent', auth, async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(400).json({ msg: 'Stripe not configured' });
+    }
+    const { amount, currency = 'usd' } = req.body;
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount),
+      currency: currency,
+      automatic_payment_methods: { enabled: true },
+    });
+    res.json({ clientSecret: paymentIntent.client_secret });
+  } catch (err) {
+    console.error('Payment intent error:', err);
+    res.status(500).json({ msg: 'Failed to create payment intent' });
+  }
+});
+
+// Affiliate routes (keep your existing affiliate routes here)
 app.get('/affiliate/link/:productId', auth, (req, res) => {
   if (req.user.role !== 'affiliate') return res.status(403).json({ msg: 'Not affiliate' });
-  
   const { productId } = req.params;
   const affiliateId = req.user.id;
-  const link = `http://localhost:3000/product/${productId}?aff=${affiliateId}`;
+  const link = `${clientURL}/product/${productId}?aff=${affiliateId}`;
   res.json({ link });
 });
 
-// Get affiliate commission data
 app.get('/affiliate/commission-data', auth, (req, res) => {
   if (req.user.role !== 'affiliate') return res.status(403).json({ msg: 'Not affiliate' });
-  
-  // Load affiliate settings from file
   let settings = {
     rate: 0.10,
     minimumPayout: 50,
@@ -592,7 +596,6 @@ app.get('/affiliate/commission-data', auth, (req, res) => {
     cookieDuration: 30,
     terms: 'Standard affiliate terms apply'
   };
-  
   try {
     const settingsFile = `${DATA_DIR}/affiliate-settings.json`;
     if (fs.existsSync(settingsFile)) {
@@ -602,28 +605,21 @@ app.get('/affiliate/commission-data', auth, (req, res) => {
   } catch (err) {
     console.error('Error loading affiliate settings:', err);
   }
-  
-  // Get affiliate-specific rate
   const affiliateFile = `${AFFILIATE_DIR}/affiliate-${req.user.id}.json`;
   if (fs.existsSync(affiliateFile)) {
     const affiliateData = JSON.parse(fs.readFileSync(affiliateFile, 'utf8'));
     settings.rate = affiliateData.commissionRate || settings.rate;
   }
-  
   res.json(settings);
 });
 
-// Get affiliate stats
 app.get('/affiliate/stats', auth, (req, res) => {
   if (req.user.role !== 'affiliate') return res.status(403).json({ msg: 'Not affiliate' });
-  
   const affiliateFile = `${AFFILIATE_DIR}/affiliate-${req.user.id}.json`;
   if (!fs.existsSync(affiliateFile)) {
     return res.status(404).json({ msg: 'Affiliate not found' });
   }
-  
   const affiliateData = JSON.parse(fs.readFileSync(affiliateFile, 'utf8'));
-  
   const stats = {
     totalCommissions: affiliateData.totalCommissions || 0,
     totalSales: affiliateData.referrals?.length || 0,
@@ -631,18 +627,51 @@ app.get('/affiliate/stats', auth, (req, res) => {
     conversionRate: affiliateData.referrals?.length > 0 ? 
       Math.min(100, (affiliateData.commissions?.length / affiliateData.referrals?.length) * 100).toFixed(1) : 0
   };
-  
   res.json(stats);
 });
 
-// Admin: Get all affiliates
+app.post('/register-affiliate', auth, async (req, res) => {
+  try {
+    const user = req.user;
+    const affiliateFile = `${AFFILIATE_DIR}/affiliate-${user.id}.json`;
+    if (fs.existsSync(affiliateFile)) {
+      return res.status(400).json({ msg: 'Already registered as affiliate' });
+    }
+    const affiliateData = {
+      id: user.id,
+      userId: user.id,
+      email: user.email,
+      status: 'pending',
+      commissionRate: 0.10,
+      totalCommissions: 0,
+      pendingPayout: 0,
+      commissions: [],
+      referrals: [],
+      joinedDate: new Date().toISOString(),
+      lastPayoutDate: null
+    };
+    fs.writeFileSync(affiliateFile, JSON.stringify(affiliateData, null, 2));
+    const userFile = `${DATA_DIR}/users/user-${String(user.id).padStart(4, '0')}.enc.json`;
+    if (fs.existsSync(userFile)) {
+      const encrypted = fs.readFileSync(userFile, 'utf8');
+      const userData = JSON.parse(decrypt(encrypted));
+      userData.role = 'affiliate';
+      const updatedEncrypted = encrypt(JSON.stringify(userData));
+      fs.writeFileSync(userFile, updatedEncrypted);
+    }
+    res.json({ msg: 'Affiliate registration submitted for approval', affiliate: affiliateData });
+  } catch (err) {
+    console.error('Affiliate registration error:', err);
+    res.status(500).json({ msg: 'Registration failed' });
+  }
+});
+
+// Admin affiliate management routes (keep your existing ones)
 app.get('/admin/affiliates', auth, admin, (req, res) => {
   try {
     const affiliates = [];
-    
     if (fs.existsSync(AFFILIATE_DIR)) {
       const files = fs.readdirSync(AFFILIATE_DIR);
-      
       for (const file of files) {
         if (file.endsWith('.json')) {
           const data = JSON.parse(fs.readFileSync(`${AFFILIATE_DIR}/${file}`, 'utf8'));
@@ -650,7 +679,6 @@ app.get('/admin/affiliates', auth, admin, (req, res) => {
         }
       }
     }
-    
     res.json(affiliates);
   } catch (err) {
     console.error('Error loading affiliates:', err);
@@ -658,7 +686,6 @@ app.get('/admin/affiliates', auth, admin, (req, res) => {
   }
 });
 
-// Admin: Get affiliate settings
 app.get('/admin/affiliate-settings', auth, admin, (req, res) => {
   try {
     const settingsFile = `${DATA_DIR}/affiliate-settings.json`;
@@ -669,12 +696,10 @@ app.get('/admin/affiliate-settings', auth, admin, (req, res) => {
       cookieDuration: 30,
       terms: 'Standard affiliate terms apply'
     };
-    
     if (fs.existsSync(settingsFile)) {
       const savedSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
       settings = { ...settings, ...savedSettings };
     }
-    
     res.json(settings);
   } catch (err) {
     console.error('Error loading settings:', err);
@@ -682,14 +707,11 @@ app.get('/admin/affiliate-settings', auth, admin, (req, res) => {
   }
 });
 
-// Admin: Update affiliate settings
 app.put('/admin/affiliate-settings', auth, admin, (req, res) => {
   try {
     const settings = req.body;
     const settingsFile = `${DATA_DIR}/affiliate-settings.json`;
-    
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
-    
     res.json({ msg: 'Settings saved', settings });
   } catch (err) {
     console.error('Error saving settings:', err);
@@ -697,18 +719,15 @@ app.put('/admin/affiliate-settings', auth, admin, (req, res) => {
   }
 });
 
-// Admin: Get affiliate stats
 app.get('/admin/affiliate-stats', auth, admin, (req, res) => {
   try {
     let totalAffiliates = 0;
     let totalCommissionsPaid = 0;
     let pendingPayouts = 0;
     let totalSalesGenerated = 0;
-    
     if (fs.existsSync(AFFILIATE_DIR)) {
       const files = fs.readdirSync(AFFILIATE_DIR);
       totalAffiliates = files.length;
-      
       for (const file of files) {
         if (file.endsWith('.json')) {
           const data = JSON.parse(fs.readFileSync(`${AFFILIATE_DIR}/${file}`, 'utf8'));
@@ -718,37 +737,24 @@ app.get('/admin/affiliate-stats', auth, admin, (req, res) => {
         }
       }
     }
-    
-    const stats = {
-      totalAffiliates,
-      totalCommissionsPaid,
-      pendingPayouts,
-      totalSalesGenerated
-    };
-    
-    res.json(stats);
+    res.json({ totalAffiliates, totalCommissionsPaid, pendingPayouts, totalSalesGenerated });
   } catch (err) {
     console.error('Error loading admin stats:', err);
     res.status(500).json({ msg: 'Failed to load stats' });
   }
 });
 
-// Admin: Update affiliate commission rate
 app.put('/admin/affiliates/:id/commission', auth, admin, (req, res) => {
   try {
     const affiliateId = req.params.id;
     const { rate } = req.body;
-    
     const affiliateFile = `${AFFILIATE_DIR}/affiliate-${affiliateId}.json`;
     if (!fs.existsSync(affiliateFile)) {
       return res.status(404).json({ msg: 'Affiliate not found' });
     }
-    
     const affiliateData = JSON.parse(fs.readFileSync(affiliateFile, 'utf8'));
     affiliateData.commissionRate = rate;
-    
     fs.writeFileSync(affiliateFile, JSON.stringify(affiliateData, null, 2));
-    
     res.json({ msg: 'Commission rate updated', affiliate: affiliateData });
   } catch (err) {
     console.error('Error updating commission:', err);
@@ -756,21 +762,16 @@ app.put('/admin/affiliates/:id/commission', auth, admin, (req, res) => {
   }
 });
 
-// Admin: Approve affiliate
 app.post('/admin/affiliates/:id/approve', auth, admin, (req, res) => {
   try {
     const affiliateId = req.params.id;
-    
     const affiliateFile = `${AFFILIATE_DIR}/affiliate-${affiliateId}.json`;
     if (!fs.existsSync(affiliateFile)) {
       return res.status(404).json({ msg: 'Affiliate not found' });
     }
-    
     const affiliateData = JSON.parse(fs.readFileSync(affiliateFile, 'utf8'));
     affiliateData.status = 'active';
-    
     fs.writeFileSync(affiliateFile, JSON.stringify(affiliateData, null, 2));
-    
     res.json({ msg: 'Affiliate approved', affiliate: affiliateData });
   } catch (err) {
     console.error('Error approving affiliate:', err);
@@ -778,21 +779,16 @@ app.post('/admin/affiliates/:id/approve', auth, admin, (req, res) => {
   }
 });
 
-// Admin: Suspend affiliate
 app.post('/admin/affiliates/:id/suspend', auth, admin, (req, res) => {
   try {
     const affiliateId = req.params.id;
-    
     const affiliateFile = `${AFFILIATE_DIR}/affiliate-${affiliateId}.json`;
     if (!fs.existsSync(affiliateFile)) {
       return res.status(404).json({ msg: 'Affiliate not found' });
     }
-    
     const affiliateData = JSON.parse(fs.readFileSync(affiliateFile, 'utf8'));
     affiliateData.status = 'suspended';
-    
     fs.writeFileSync(affiliateFile, JSON.stringify(affiliateData, null, 2));
-    
     res.json({ msg: 'Affiliate suspended', affiliate: affiliateData });
   } catch (err) {
     console.error('Error suspending affiliate:', err);
@@ -800,19 +796,14 @@ app.post('/admin/affiliates/:id/suspend', auth, admin, (req, res) => {
   }
 });
 
-// Admin: Process payout
 app.post('/admin/affiliates/:id/payout', auth, admin, (req, res) => {
   try {
     const affiliateId = req.params.id;
-    
     const affiliateFile = `${AFFILIATE_DIR}/affiliate-${affiliateId}.json`;
     if (!fs.existsSync(affiliateFile)) {
       return res.status(404).json({ msg: 'Affiliate not found' });
     }
-    
     const affiliateData = JSON.parse(fs.readFileSync(affiliateFile, 'utf8'));
-    
-    // Create payout record
     const payout = {
       id: Date.now(),
       affiliateId: affiliateId,
@@ -820,23 +811,17 @@ app.post('/admin/affiliates/:id/payout', auth, admin, (req, res) => {
       date: new Date().toISOString(),
       status: 'paid'
     };
-    
-    // Update affiliate data
     affiliateData.totalCommissions = (affiliateData.totalCommissions || 0) + (affiliateData.pendingPayout || 0);
     affiliateData.pendingPayout = 0;
     affiliateData.lastPayoutDate = new Date().toISOString();
     affiliateData.payouts = affiliateData.payouts || [];
     affiliateData.payouts.push(payout);
-    
     fs.writeFileSync(affiliateFile, JSON.stringify(affiliateData, null, 2));
-    
-    // Save payout to separate file
-    const payoutFile = `${AFFILIATE_DIR}/payouts/payout-${payout.id}.json`;
-    if (!fs.existsSync(`${AFFILIATE_DIR}/payouts`)) {
-      fs.mkdirSync(`${AFFILIATE_DIR}/payouts`, { recursive: true });
+    const payoutDir = `${AFFILIATE_DIR}/payouts`;
+    if (!fs.existsSync(payoutDir)) {
+      fs.mkdirSync(payoutDir, { recursive: true });
     }
-    fs.writeFileSync(payoutFile, JSON.stringify(payout, null, 2));
-    
+    fs.writeFileSync(`${payoutDir}/payout-${payout.id}.json`, JSON.stringify(payout, null, 2));
     res.json({ msg: 'Payout processed', payout });
   } catch (err) {
     console.error('Error processing payout:', err);
@@ -844,32 +829,25 @@ app.post('/admin/affiliates/:id/payout', auth, admin, (req, res) => {
   }
 });
 
-// Update order creation to track affiliate referrals
+// Order creation with affiliate tracking
 app.post('/orders', (req, res) => {
-  const { affiliateId } = req.query; // From URL param
+  const { affiliateId } = req.query;
   const orderData = { ...req.body, affiliateId: affiliateId ? parseInt(affiliateId) : null };
   const order = saveEntity('order', orderData);
   
   if (affiliateId) {
-    // Record referral
     const affiliateFile = `${AFFILIATE_DIR}/affiliate-${affiliateId}.json`;
     if (fs.existsSync(affiliateFile)) {
       const affiliateData = JSON.parse(fs.readFileSync(affiliateFile, 'utf8'));
-      
-      // Add referral
       affiliateData.referrals = affiliateData.referrals || [];
       affiliateData.referrals.push({
         orderId: order.id,
         date: new Date().toISOString(),
         amount: order.items.reduce((sum, i) => sum + (i.price * i.quantity), 0)
       });
-      
-      // Calculate commission
       const commissionRate = affiliateData.commissionRate || 0.10;
       const total = order.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
       const commission = total * commissionRate;
-      
-      // Add commission
       affiliateData.commissions = affiliateData.commissions || [];
       affiliateData.commissions.push({
         orderId: order.id,
@@ -877,10 +855,7 @@ app.post('/orders', (req, res) => {
         date: new Date().toISOString(),
         status: 'pending'
       });
-      
-      // Update pending payout
       affiliateData.pendingPayout = (affiliateData.pendingPayout || 0) + commission;
-      
       fs.writeFileSync(affiliateFile, JSON.stringify(affiliateData, null, 2));
     }
   }
@@ -888,30 +863,14 @@ app.post('/orders', (req, res) => {
   res.json({ msg: 'Order created', order });
 });
 
-// Create payment intent for wallet payments
-app.post('/create-payment-intent', auth, async (req, res) => {
-  try {
-    if (!stripe) {
-      return res.status(400).json({ msg: 'Stripe not configured' });
-    }
-
-    const { amount, currency = 'usd' } = req.body;
-
-    // Create a PaymentIntent
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount), // Amount in cents
-      currency: currency,
-      automatic_payment_methods: {
-        enabled: true,
-      },
-    });
-
-    res.json({ clientSecret: paymentIntent.client_secret });
-  } catch (err) {
-    console.error('Payment intent error:', err);
-    res.status(500).json({ msg: 'Failed to create payment intent' });
+// Test Stripe connection (optional)
+app.get('/test-stripe', (req, res) => {
+  if (stripe) {
+    res.json({ connected: true, message: 'Stripe is configured' });
+  } else {
+    res.json({ connected: false, message: 'Stripe not configured' });
   }
-});2
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);

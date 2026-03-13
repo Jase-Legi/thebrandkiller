@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './Admin.css';
 import { useNotifications } from '../components/NotificationManager';
+import { BACKEND_URL } from '../config';
 
 const merchTypes = [
   { value: 'T-Shirt', category: 'clothing' },
@@ -249,7 +250,7 @@ function Admin({ token, user, axiosInstance }) {
     
     if (product.images && product.images.length > 0) {
       const existingImages = product.images.map(url => ({
-        preview: url.startsWith('http') ? url : `http://72.76.207.228:50000${url}`,
+        preview: url.startsWith('http') ? url : `${BACKEND_URL}${url}`,
         caption: '',
         alt: '',
         linkedOptions: getLinkedOptionsForImage(url, product.variantImages)
@@ -346,7 +347,7 @@ function Admin({ token, user, axiosInstance }) {
           if (!url) return null;
           const previewUrl = url.startsWith('http') 
             ? url 
-            : `http://72.76.207.228:5000${url.startsWith('/') ? url : '/' + url}`;
+            : `${BACKEND_URL}${url.startsWith('/') ? url : '/' + url}`;
           return {
             preview: previewUrl,
             filename: item.filename || url.split('/').pop() || 'image',

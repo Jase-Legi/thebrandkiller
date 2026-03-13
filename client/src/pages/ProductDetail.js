@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { getOptionValues } from '../utils/formatUtils';
 import './ProductDetail.css';
+import { BACKEND_URL } from '../config';
 
 function ProductDetail({ addToCart, selectedOptions, selectedImages, updateSelectedOptions, updateSelectedImage }) {
   const { id } = useParams();
@@ -18,7 +19,7 @@ function ProductDetail({ addToCart, selectedOptions, selectedImages, updateSelec
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        const res = await axios.get('http://72.76.207.228:5000/products');
+        const res = await axios.get(`${BACKEND_URL}/products`);
         const found = res.data.find(p => p.id === parseInt(id));
         if (!found) {
           navigate('/not-found');

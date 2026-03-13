@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { getOptionValues } from '../utils/formatUtils';
 import './Home.css';
+import { BACKEND_URL } from '../config';
 
 function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOptions, updateSelectedImage }) {
   const [products, setProducts] = useState([]);
@@ -16,7 +17,7 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
   const [modalImageIndex, setModalImageIndex] = useState(0);
 
   useEffect(() => {
-    axios.get('http://72.76.207.228:50005000/products').then(res => {
+    axios.get(`${BACKEND_URL}/products`).then(res => {
       setProducts(res.data);
       setLoading(false);
     }).catch(err => {
