@@ -20,7 +20,8 @@ import { ThemeProvider } from './components/ThemeContext';
 const stripePromise = loadStripe('pk_test_51YourPublishableKeyHere1234567890');
 
 const axiosInstance = axios.create({
-  baseURL: 'http://localhost:5000'
+  // baseURL: 'http://localhost:5000'
+  baseURL: 'http://72.76.207.228:5000'
 });
 
 axiosInstance.interceptors.response.use(
@@ -257,7 +258,6 @@ function App() {
             )}
             <ThemeToggle />
           </nav>
-
           <Elements stripe={stripePromise}>
             <Routes>
               <Route path="/" element={

@@ -124,7 +124,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
       ],
     });
 
-    // Check if payment request is available
     pr.canMakePayment().then(result => {
       if (result) {
         setPaymentRequest(pr);
@@ -136,7 +135,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
       setProcessing(true);
       
       try {
-        // Create payment intent on your server
         const response = await axiosInstance.post('/create-payment-intent', {
           amount: Math.round(calculateTotal() * 100),
           currency: 'usd',
@@ -145,7 +143,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
 
         const { clientSecret } = response.data;
 
-        // Confirm the PaymentIntent
         const { error: confirmError } = await stripe.confirmCardPayment(
           clientSecret,
           { payment_method: ev.paymentMethod.id },
@@ -158,8 +155,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
           setProcessing(false);
         } else {
           ev.complete('success');
-          
-          // Submit order with wallet payment
           await submitOrder('wallet', { 
             paymentMethodId: ev.paymentMethod.id,
             walletType: ev.walletName 
@@ -189,7 +184,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
         createdAt: new Date().toISOString()
       };
 
-      // Include affiliate ID if present
       const endpoint = affiliateId ? `/orders?affiliateId=${affiliateId}` : '/orders';
       
       const res = await axiosInstance.post(endpoint, orderData);
@@ -202,7 +196,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
       setOrderId(res.data.order.id || `ORD-${Date.now()}`);
       setOrderPlaced(true);
       
-      // Show affiliate notification if applicable
       if (affiliateId) {
         showNotification('Order placed successfully! Affiliate commission will be tracked.', 'success');
       } else {
@@ -245,7 +238,7 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
         return;
       }
 
-      // Create payment intent first
+      // Create payment intent
       const intentResponse = await axiosInstance.post('/create-payment-intent', {
         amount: Math.round(calculateTotal() * 100),
         currency: 'usd'
@@ -255,36 +248,52 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
         throw new Error('No client secret received from server');
       }
 
-      // Use confirmCardPayment directly (simpler approach)
-      const { error, paymentIntent } = await stripe.confirmCardPayment(
-        intentResponse.data.clientSecret,
-        {
-          payment_method: {
-            card: cardElement,
-            billing_details: {
-              name: address.name,
-              address: {
-                line1: address.street,
-                city: address.city,
-                state: address.state,
-                postal_code: address.zip,
-                country: address.country
-              }
+      const clientSecret = intentResponse.data.clientSecret;
+
+      // Confirm the payment with the card element
+      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardElement,
+          billing_details: {
+            name: address.name,
+            address: {
+              line1: address.street,
+              city: address.city,
+              state: address.state,
+              postal_code: address.zip,
+              country: address.country
             }
           }
         }
-      );
+      });
 
       if (error) {
+        // Show error to the customer
         showNotification(error.message, 'error');
         setStripeError(error.message);
         setProcessing(false);
       } else if (paymentIntent.status === 'succeeded') {
-        // Payment successful
+        // Payment succeeded
         await submitOrder('stripe', { 
           paymentIntentId: paymentIntent.id,
           paymentMethod: 'card'
         });
+      } else if (paymentIntent.status === 'requires_action') {
+        // Let Stripe.js handle the action (e.g., 3D Secure)
+        const { error: confirmError, paymentIntent: confirmedIntent } = await stripe.confirmCardPayment(clientSecret);
+        if (confirmError) {
+          showNotification(confirmError.message, 'error');
+          setStripeError(confirmError.message);
+          setProcessing(false);
+        } else if (confirmedIntent.status === 'succeeded') {
+          await submitOrder('stripe', { 
+            paymentIntentId: confirmedIntent.id,
+            paymentMethod: 'card'
+          });
+        } else {
+          showNotification('Payment not completed: ' + confirmedIntent.status, 'warning');
+          setProcessing(false);
+        }
       } else {
         showNotification('Payment not completed: ' + paymentIntent.status, 'warning');
         setProcessing(false);
@@ -425,7 +434,7 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
           <div className="stripe-error-content">
             <strong>Payment Error:</strong>
             <p>{stripeError}</p>
-            <small>Check your Stripe API keys in the .env file</small>
+            <small>Check your card details or try another payment method.</small>
           </div>
         </div>
       )}
@@ -463,13 +472,11 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
               const price = parseFloat(item.promoPrice || item.price);
               const itemTotal = price * item.quantity;
               
-              // Get variant image if available, otherwise use default
               const itemImage = item.displayImage || item.images?.[0] || '';
               
               return (
                 <div key={index} className={`cart-item ${showEditItem === index ? 'editing' : ''}`}>
                   <div className="cart-item-content">
-                    {/* Product Image */}
                     <div className="item-image-container">
                       <img 
                         src={itemImage} 
@@ -478,13 +485,11 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
                       />
                     </div>
                     
-                    {/* Product Details */}
                     <div className="item-details">
                       <div className="item-header">
                         <div>
                           <h4 className="item-name">{item.name}</h4>
                           
-                          {/* Display Selected Options */}
                           {item.options && Object.keys(item.options).length > 0 && (
                             <div className="selected-options">
                               {(() => {
@@ -492,17 +497,14 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
                                 
                                 const displayOptions = [];
                                 
-                                // Add size if exists and is not array
                                 if (item.options.size && typeof item.options.size === 'string' && item.options.size !== '') {
                                   displayOptions.push(`Size: ${item.options.size}`);
                                 }
                                 
-                                // Add color if exists and is not array
                                 if (item.options.color && typeof item.options.color === 'string' && item.options.color !== '') {
                                   displayOptions.push(`Color: ${item.options.color}`);
                                 }
                                 
-                                // Add any other non-array options
                                 Object.entries(item.options).forEach(([key, value]) => {
                                   if (key === 'size' || key === 'color' || key === 'sizes' || key === 'colors') return;
                                   if (!value) return;
@@ -515,7 +517,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
                                   displayOptions.push(`${key}: ${displayValue}`);
                                 });
                                 
-                                // If we have options to display
                                 if (displayOptions.length > 0) {
                                   return displayOptions.map((option, idx) => (
                                     <span key={idx} className="option-badge">
@@ -551,7 +552,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
                         </div>
                       </div>
                       
-                      {/* Quantity and Total */}
                       <div className="item-quantity">
                         <span className="quantity-label">Quantity:</span>
                         <div className="quantity-controls">
@@ -581,7 +581,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
                     </div>
                   </div>
                   
-                  {/* Edit Panel - Expanded when editing */}
                   {showEditItem === index && (
                     <div className="edit-panel">
                       <h5 className="edit-title">Edit Item</h5>
@@ -606,7 +605,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
                             {item.sizes?.map((size, idx) => (
                               <option key={idx} value={size}>{size}</option>
                             ))}
-                            {/* Also check in item.options.sizes */}
                             {item.options?.sizes?.map((size, idx) => (
                               <option key={idx} value={size}>{size}</option>
                             ))}
@@ -633,7 +631,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
                             {item.colors?.map((color, idx) => (
                               <option key={idx} value={color}>{color}</option>
                             ))}
-                            {/* Also check in item.options.colors */}
                             {item.options?.colors?.map((color, idx) => (
                               <option key={idx} value={color}>{color}</option>
                             ))}
@@ -765,7 +762,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
           <div className="order-summary">
             <h2 className="section-title">Order Summary</h2>
             
-            {/* Order Totals */}
             <div style={{ marginBottom: '24px' }}>
               <div className="summary-row">
                 <span className="summary-label">Subtotal ({cart.length} items)</span>
@@ -820,7 +816,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
               
               {paymentMethod === 'stripe' && (
                 <div style={{ marginTop: '16px' }}>
-                  {/* Digital Wallet Buttons (Google Pay/Apple Pay) */}
                   {walletAvailable && paymentRequest && (
                     <div style={{ marginBottom: '20px' }}>
                       <div style={{ 
@@ -858,7 +853,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
                     </div>
                   )}
                   
-                  {/* Card Form */}
                   <div style={{ 
                     marginTop: walletAvailable ? '20px' : '0',
                     borderTop: walletAvailable ? '1px solid #333' : 'none',
@@ -872,10 +866,9 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
                     }}>
                       {walletAvailable ? 'Or enter card details:' : 'Enter card details:'}
                     </div>
-                    
                     <div className="stripe-card">
                       <CardElement options={{ 
-                        style: { 
+                        style: {
                           base: { 
                             color: '#fff', 
                             fontSize: '16px',
@@ -908,7 +901,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
               )}
             </div>
 
-            {/* Place Order Button */}
             <button 
               onClick={handlePayment}
               disabled={processing || cart.length === 0}

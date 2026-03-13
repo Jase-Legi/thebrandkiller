@@ -40,7 +40,10 @@ function Admin({ token, user, axiosInstance }) {
     variantImages: { color: {}, size: {} },
     options: { sizes: [], colors: [] },
     health: { ingredients: [], dosage: '', form: '', allergens: [] },
-    estimatedShipping: ''
+    estimatedShipping: '',
+    // New fields for platform integration
+    platformProductId: '',      // ID of the product on Printify/Printful
+    platformProductData: null,  // Full data from platform (optional)
   });
   
   const [imageFiles, setImageFiles] = useState([]);
@@ -61,14 +64,29 @@ function Admin({ token, user, axiosInstance }) {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
-  
+
+  // New state for platform products
+  const [platformProducts, setPlatformProducts] = useState([]);
+  const [loadingPlatformProducts, setLoadingPlatformProducts] = useState(false);
+  const [platformAction, setPlatformAction] = useState('select'); // 'select' or 'create' (create not implemented yet)
+
   const { showNotification, showConfirmation } = useNotifications();
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   useEffect(() => {
     if (user?.role === 'admin') {
       fetchProducts();
     }
   }, [user]);
+
+  // Fetch products from platform when provider changes to printful or printify
+  useEffect(() => {
+    if (form.provider === 'printful' || form.provider === 'printify') {
+      fetchPlatformProducts();
+    } else {
+      setPlatformProducts([]);
+    }
+  }, [form.provider]);
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -80,6 +98,61 @@ function Admin({ token, user, axiosInstance }) {
       showNotification('Failed to load products', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchPlatformProducts = async () => {
+    setLoadingPlatformProducts(true);
+    try {
+      const res = await axiosInstance.get(`/admin/${form.provider}/products`);
+      setPlatformProducts(res.data);
+    } catch (err) {
+      console.error(`Failed to load ${form.provider} products:`, err);
+      showNotification(`Failed to load products from ${form.provider}`, 'error');
+      setPlatformProducts([]);
+    } finally {
+      setLoadingPlatformProducts(false);
+    }
+  };
+
+  // Function to fetch Printful product details and autofill
+  const fetchPrintfulProductDetails = async (productId) => {
+    if (!productId) return;
+    setLoadingDetails(true);
+    try {
+      const res = await axiosInstance.get(`/admin/printful/product/${productId}`);
+      const details = res.data;
+      
+      setForm(prev => ({
+        ...prev,
+        name: details.name || prev.name,
+        description: details.description || prev.description,
+        type: details.type || prev.type,
+        category: details.category || prev.category,
+        options: {
+          sizes: details.sizes || [],
+          colors: details.colors || []
+        },
+        images: details.images || [],
+        variantImages: details.variantImages || { color: {}, size: {} }
+      }));
+
+      if (details.images && details.images.length > 0) {
+        const newImageFiles = details.images.map(url => ({
+          preview: url,
+          caption: '',
+          alt: '',
+          linkedOptions: {}
+        }));
+        setImageFiles(newImageFiles);
+      }
+
+      showNotification('Product details autofilled from Printful', 'success');
+    } catch (err) {
+      console.error('Failed to fetch Printful details:', err);
+      showNotification('Could not fetch product details', 'error');
+    } finally {
+      setLoadingDetails(false);
     }
   };
 
@@ -149,7 +222,9 @@ function Admin({ token, user, axiosInstance }) {
       variantImages: { color: {}, size: {} },
       options: { sizes: [], colors: [] },
       health: { ingredients: [], dosage: '', form: '', allergens: [] },
-      estimatedShipping: ''
+      estimatedShipping: '',
+      platformProductId: '',
+      platformProductData: null,
     });
     setImageFiles([]);
     setVideoFile(null);
@@ -158,6 +233,7 @@ function Admin({ token, user, axiosInstance }) {
     setStep(1);
     setSelectedImageIndex(null);
     setImageEditMode(false);
+    setPlatformProducts([]);
   };
 
   const startEdit = (product) => {
@@ -166,13 +242,14 @@ function Admin({ token, user, axiosInstance }) {
       ...product,
       options: product.options || { sizes: [], colors: [] },
       health: product.health || { ingredients: [], dosage: '', form: '', allergens: [] },
-      variantImages: product.variantImages || { color: {}, size: {} }
+      variantImages: product.variantImages || { color: {}, size: {} },
+      platformProductId: product.platformProductId || '',
+      platformProductData: product.platformProductData || null,
     });
     
-    // Use server URLs directly
     if (product.images && product.images.length > 0) {
       const existingImages = product.images.map(url => ({
-        preview: url.startsWith('http') ? url : `http://localhost:5000${url}`,
+        preview: url.startsWith('http') ? url : `http://72.76.207.228:50000${url}`,
         caption: '',
         alt: '',
         linkedOptions: getLinkedOptionsForImage(url, product.variantImages)
@@ -250,47 +327,26 @@ function Admin({ token, user, axiosInstance }) {
           }
         });
         
-        console.log('Upload response:', response.data); // Debug log
+        console.log('Upload response:', response.data);
         
-        // Handle different server response structures
         let fileData = [];
-        
-        // Check if response has files array
         if (response.data && response.data.files && Array.isArray(response.data.files)) {
           fileData = response.data.files;
-        } 
-        // Check if response has filePaths array (first route in server)
-        else if (response.data && response.data.files && Array.isArray(response.data.files)) {
-          // If files is array of strings
-          if (typeof response.data.files[0] === 'string') {
-            fileData = response.data.files.map(filePath => ({ url: filePath }));
-          }
-        }
-        // Check if response itself is an array
-        else if (Array.isArray(response.data)) {
+        } else if (Array.isArray(response.data)) {
           fileData = response.data;
         }
         
-        // Process file data to create image objects
         const newImages = fileData.map(item => {
-          // Extract URL - handle both object and string responses
           let url = '';
           if (typeof item === 'string') {
             url = item;
           } else if (item && typeof item === 'object') {
             url = item.url || item.preview || item.path || '';
           }
-          
-          if (!url) {
-            console.warn('Could not extract URL from item:', item);
-            return null;
-          }
-          
-          // Ensure URL is absolute
+          if (!url) return null;
           const previewUrl = url.startsWith('http') 
             ? url 
-            : `http://localhost:5000${url.startsWith('/') ? url : '/' + url}`;
-          
+            : `http://72.76.207.228:5000${url.startsWith('/') ? url : '/' + url}`;
           return {
             preview: previewUrl,
             filename: item.filename || url.split('/').pop() || 'image',
@@ -314,7 +370,6 @@ function Admin({ token, user, axiosInstance }) {
         setUploading(false);
       }
     } else {
-      // For local preview without upload (when token is missing)
       const newImages = imageFiles.map(file => ({
         file,
         preview: URL.createObjectURL(file),
@@ -322,7 +377,6 @@ function Admin({ token, user, axiosInstance }) {
         caption: '',
         alt: ''
       }));
-      
       setImageFiles(prev => [...prev, ...newImages]);
       showNotification(`${newImages.length} image(s) added for preview`, 'info');
     }
@@ -347,13 +401,8 @@ function Admin({ token, user, axiosInstance }) {
     setForm(prev => ({ ...prev, videoUrl: '' }));
   };
 
-  const handleDragOver = (e) => { 
-    e.preventDefault(); 
-    setDragOver(true); 
-  };
-  
+  const handleDragOver = (e) => { e.preventDefault(); setDragOver(true); };
   const handleDragLeave = () => setDragOver(false);
-  
   const handleDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
@@ -361,13 +410,8 @@ function Admin({ token, user, axiosInstance }) {
     handleFileSelect({ target: { files } });
   };
 
-  const handleVideoDragOver = (e) => {
-    e.preventDefault();
-    setVideoDragOver(true);
-  };
-
+  const handleVideoDragOver = (e) => { e.preventDefault(); setVideoDragOver(true); };
   const handleVideoDragLeave = () => setVideoDragOver(false);
-
   const handleVideoDrop = (e) => {
     e.preventDefault();
     setVideoDragOver(false);
@@ -389,13 +433,11 @@ function Admin({ token, user, axiosInstance }) {
           
           if (removedFile.linkedOptions) {
             const updatedVariantImages = { ...form.variantImages };
-            
             Object.entries(removedFile.linkedOptions).forEach(([optionType, optionValue]) => {
               if (updatedVariantImages[optionType] && updatedVariantImages[optionType][optionValue]) {
                 delete updatedVariantImages[optionType][optionValue];
               }
             });
-            
             setForm(prevForm => ({
               ...prevForm,
               variantImages: updatedVariantImages
@@ -415,11 +457,9 @@ function Admin({ token, user, axiosInstance }) {
     setImageFiles(prev => {
       const newFiles = [...prev];
       const newIndex = direction === 'up' ? index - 1 : index + 1;
-      
       if (newIndex >= 0 && newIndex < newFiles.length) {
         [newFiles[index], newFiles[newIndex]] = [newFiles[newIndex], newFiles[index]];
       }
-      
       return newFiles;
     });
   };
@@ -433,21 +473,14 @@ function Admin({ token, user, axiosInstance }) {
   };
 
   const openLinkOptionModal = (imageIndex, optionType) => {
-    setLinkOptionModal({
-      open: true,
-      imageIndex,
-      optionType,
-      optionValue: ''
-    });
+    setLinkOptionModal({ open: true, imageIndex, optionType, optionValue: '' });
   };
 
   const linkImageToOption = () => {
     const { imageIndex, optionType, optionValue } = linkOptionModal;
-    
     if (!optionValue || !imageFiles[imageIndex]) return;
     
     const imageUrl = imageFiles[imageIndex]?.preview;
-    
     const updatedImageFiles = [...imageFiles];
     const existingLinkedOption = updatedImageFiles[imageIndex].linkedOptions?.[optionType];
     
@@ -468,7 +501,6 @@ function Admin({ token, user, axiosInstance }) {
         [optionType]: optionValue
       }
     };
-    
     setImageFiles(updatedImageFiles);
     
     setForm(prev => ({
@@ -494,7 +526,6 @@ function Admin({ token, user, axiosInstance }) {
         const updatedImageFiles = [...imageFiles];
         const linkedOptions = { ...updatedImageFiles[imageIndex].linkedOptions };
         const removedValue = linkedOptions[optionType];
-        
         delete linkedOptions[optionType];
         updatedImageFiles[imageIndex] = { ...updatedImageFiles[imageIndex], linkedOptions };
         setImageFiles(updatedImageFiles);
@@ -506,7 +537,6 @@ function Admin({ token, user, axiosInstance }) {
           }
           return { ...prev, variantImages: updatedVariantImages };
         });
-        
         showNotification('Link removed', 'info');
       },
       () => {}
@@ -545,7 +575,6 @@ function Admin({ token, user, axiosInstance }) {
     const imageUrls = imageFiles.map(img => img.preview);
     
     const variantImages = { color: {}, size: {} };
-    
     imageFiles.forEach(img => {
       if (img.linkedOptions) {
         Object.entries(img.linkedOptions).forEach(([optionType, optionValue]) => {
@@ -560,7 +589,10 @@ function Admin({ token, user, axiosInstance }) {
       ...form,
       images: imageUrls,
       variantImages,
-      health: form.category === 'supplements' ? form.health : { ingredients: [], dosage: '', form: '', allergens: [] }
+      health: form.category === 'supplements' ? form.health : { ingredients: [], dosage: '', form: '', allergens: [] },
+      // Include platform fields
+      platformProductId: form.platformProductId,
+      platformProductData: form.platformProductData,
     };
 
     try {
@@ -589,6 +621,8 @@ function Admin({ token, user, axiosInstance }) {
   const selectedType = merchTypes.find(t => t.value === form.type) || {};
   const isApparel = ['clothing', 'shoes'].includes(selectedType.category);
   const isHealth = selectedType.category === 'supplements';
+  // Check if platform integration is available
+  const isPlatformProvider = form.provider === 'printful' || form.provider === 'printify';
 
   if (!user || user.role !== 'admin') {
     return (
@@ -650,6 +684,16 @@ function Admin({ token, user, axiosInstance }) {
                         {product.category && (
                           <span className="product-category">
                             {product.category}
+                          </span>
+                        )}
+                        {product.provider && (
+                          <span className="product-provider" style={{ marginLeft: '8px', color: '#888' }}>
+                            [{product.provider}]
+                          </span>
+                        )}
+                        {product.platformProductId && (
+                          <span className="platform-id" style={{ marginLeft: '8px', color: '#0f0', fontSize: '12px' }}>
+                            Platform ID: {product.platformProductId}
                           </span>
                         )}
                       </div>
@@ -797,9 +841,99 @@ function Admin({ token, user, axiosInstance }) {
             >
               <option value="local">Local/In-house</option>
               <option value="printful">Printful</option>
+              <option value="printify">Printify</option>
               <option value="shopify">Shopify</option>
               <option value="custom">Custom API</option>
             </select>
+
+            {/* Platform-specific product selection */}
+            {isPlatformProvider && (
+              <div className="platform-section" style={{ marginTop: '24px', padding: '16px', background: '#1a1a1a', borderRadius: '12px' }}>
+                <h4 style={{ color: '#fff', marginBottom: '16px' }}>
+                  {form.provider === 'printful' ? 'Printful' : 'Printify'} Product
+                </h4>
+                
+                <div style={{ marginBottom: '16px' }}>
+                  <label className="form-label">Action</label>
+                  <div style={{ display: 'flex', gap: '16px' }}>
+                    <label style={{ color: '#ccc' }}>
+                      <input 
+                        type="radio" 
+                        name="platformAction" 
+                        value="select" 
+                        checked={platformAction === 'select'} 
+                        onChange={() => setPlatformAction('select')}
+                      /> Select Existing Product
+                    </label>
+                    <label style={{ color: '#ccc' }}>
+                      <input 
+                        type="radio" 
+                        name="platformAction" 
+                        value="create" 
+                        checked={platformAction === 'create'} 
+                        onChange={() => setPlatformAction('create')}
+                        disabled // Create not implemented yet
+                      /> Create New Product (coming soon)
+                    </label>
+                  </div>
+                </div>
+
+                {platformAction === 'select' && (
+                  <>
+                    {loadingPlatformProducts ? (
+                      <div className="loading-spinner-small"></div>
+                    ) : (
+                      <>
+                        <label className="form-label">Select Product from {form.provider}</label>
+                        <select 
+                          className="form-select" 
+                          value={form.platformProductId} 
+                          onChange={e => {
+                            const selectedId = e.target.value;
+                            setForm(prev => ({ 
+                              ...prev, 
+                              platformProductId: selectedId,
+                              platformProductData: null
+                            }));
+                            if (selectedId && form.provider === 'printful') {
+                              fetchPrintfulProductDetails(selectedId);
+                            }
+                          }}
+                        >
+                          <option value="">-- Choose a product --</option>
+                          {platformProducts.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} (ID: {p.id})
+                            </option>
+                          ))}
+                        </select>
+                        {loadingDetails && (
+                          <div style={{ marginTop: '8px', color: '#aaa' }}>
+                            <div className="loading-spinner-small"></div> Fetching product details...
+                          </div>
+                        )}
+                      </>
+                    )}
+                    <button 
+                      type="button" 
+                      className="btn-secondary" 
+                      style={{ marginTop: '12px' }}
+                      onClick={fetchPlatformProducts}
+                    >
+                      Refresh Product List
+                    </button>
+                  </>
+                )}
+
+                {platformAction === 'create' && (
+                  <p style={{ color: '#aaa' }}>Creation from admin is not yet implemented. Please create the product directly on {form.provider} and then select it above.</p>
+                )}
+
+                <p className="help-text" style={{ marginTop: '16px' }}>
+                  The selected platform product ID will be stored with this product for future reference.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -844,28 +978,23 @@ function Admin({ token, user, axiosInstance }) {
                   if (e.key === 'Enter' && e.target.value.trim()) {
                     const newColor = e.target.value.trim();
                     const colors = form.options.colors || [];
-                    
                     const colorsToAdd = newColor.includes(',') 
                       ? newColor.split(',').map(c => c.trim()).filter(c => c)
                       : [newColor];
-                    
                     const updatedColors = [...colors];
                     colorsToAdd.forEach(color => {
                       if (!updatedColors.includes(color)) {
                         updatedColors.push(color);
                       }
                     });
-                    
                     setForm(prev => ({
                       ...prev,
                       options: { ...prev.options, colors: updatedColors }
                     }));
-                    
                     e.target.value = '';
                   }
                 }}
               />
-              
               <button
                 type="button"
                 onClick={() => {
@@ -876,19 +1005,16 @@ function Admin({ token, user, axiosInstance }) {
                     const colorsToAdd = newColor.includes(',') 
                       ? newColor.split(',').map(c => c.trim()).filter(c => c)
                       : [newColor];
-                    
                     const updatedColors = [...colors];
                     colorsToAdd.forEach(color => {
                       if (!updatedColors.includes(color)) {
                         updatedColors.push(color);
                       }
                     });
-                    
                     setForm(prev => ({
                       ...prev,
                       options: { ...prev.options, colors: updatedColors }
                     }));
-                    
                     input.value = '';
                   }
                 }}
@@ -897,13 +1023,9 @@ function Admin({ token, user, axiosInstance }) {
               >
                 Add Color(s)
               </button>
-              
               <div className="color-button-grid">
                 {form.options.colors?.map((color, index) => (
-                  <span
-                    key={index}
-                    className="option-badge"
-                  >
+                  <span key={index} className="option-badge">
                     {color}
                     <button
                       type="button"

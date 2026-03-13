@@ -18,7 +18,7 @@ function ProductDetail({ addToCart, selectedOptions, selectedImages, updateSelec
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        const res = await axios.get('http://localhost:5000/products');
+        const res = await axios.get('http://72.76.207.228:5000/products');
         const found = res.data.find(p => p.id === parseInt(id));
         if (!found) {
           navigate('/not-found');

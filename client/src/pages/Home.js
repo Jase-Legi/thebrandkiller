@@ -16,7 +16,7 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
   const [modalImageIndex, setModalImageIndex] = useState(0);
 
   useEffect(() => {
-    axios.get('http://localhost:5000/products').then(res => {
+    axios.get('http://72.76.207.228:50005000/products').then(res => {
       setProducts(res.data);
       setLoading(false);
     }).catch(err => {
