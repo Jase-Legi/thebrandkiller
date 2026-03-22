@@ -319,7 +319,7 @@ function Login({ onLogin, axiosInstance }) {
                 style={{
                   background: 'transparent',
                   border: '1px solid #444',
-                  color: '#fff',
+                  color: '#cccccc',
                   padding: '8px 16px',
                   borderRadius: '8px',
                   cursor: 'pointer',

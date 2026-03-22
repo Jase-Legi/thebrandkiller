@@ -9,12 +9,13 @@ const path = require('path');
 const multer = require('multer');
 const EasyPostClient = require('@easypost/api');
 const axios = require('axios'); // Added for Printful/Printify API calls
+const { title } = require('process');
 const clientURL = (process.env.NODE_ENV === 'production') ? 'https://thebrandkiller.netlify.app' : 'http://localhost:3000';
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
+const storeId = process.env.PRINTFUL_STORE_ID;
 const PORT = 5000;
 
 // Paths
@@ -438,21 +439,24 @@ app.post('/admin/shipping-preview', auth, admin, async (req, res) => {
 // Printful products (catalog)
 app.get('/admin/printful/products', auth, admin, async (req, res) => {
   try {
-    const apiKey = process.env.PRINTFUL_API_KEY;
+    const apiKey = process.env.PRINTFUL_FULL_ACCESS_API_KEY;
     if (!apiKey) {
       return res.status(400).json({ msg: 'Printful API key not configured' });
     }
-    const response = await axios.get('https://api.printful.com/products', {
+    const response = await axios.get(`https://api.printful.com/products`, {
       headers: {
         'Authorization': `Bearer ${apiKey}`
       }
     });
+    console.log('Printful API response:', response.data);
     const products = response.data.result.map(p => ({
       id: p.id,
       name: p.name,
+      title: p.title,
       thumbnail: p.thumbnail_url,
       description: p.description,
     }));
+
     res.json(products);
   } catch (err) {
     console.error('Printful API error:', err.response?.data || err.message);
@@ -463,7 +467,7 @@ app.get('/admin/printful/products', auth, admin, async (req, res) => {
 // Get detailed Printful product info (variants, images)
 app.get('/admin/printful/product/:productId', auth, admin, async (req, res) => {
   try {
-    const apiKey = process.env.PRINTFUL_API_KEY;
+    const apiKey = process.env.PRINTFUL_FULL_ACCESS_API_KEY;
     if (!apiKey) {
       return res.status(400).json({ msg: 'Printful API key not configured' });
     }
@@ -473,6 +477,7 @@ app.get('/admin/printful/product/:productId', auth, admin, async (req, res) => {
         'Authorization': `Bearer ${apiKey}`
       }
     });
+    
     const productData = response.data.result;
     
     // Extract variants (sizes, colors) and images
@@ -489,6 +494,7 @@ app.get('/admin/printful/product/:productId', auth, admin, async (req, res) => {
       id: productData.id,
       name: productData.name,
       description: productData.description,
+      title: productData.title,
       type: productData.type_name, // e.g., "T-Shirt"
       category: mapPrintfulCategory(productData.type_name), // map to our categories
       sizes,

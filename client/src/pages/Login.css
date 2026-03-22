@@ -391,7 +391,7 @@
 }
 
 .light-theme .toggle-btn {
-  color: #007bff;
+  color: #007bff; background: #eeeeee !important; border-radius: 12px !important; padding: 8px 12px !important;
 }
 
 .light-theme .toggle-btn:hover {

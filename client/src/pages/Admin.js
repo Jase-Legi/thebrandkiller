@@ -904,7 +904,7 @@ function Admin({ token, user, axiosInstance }) {
                           <option value="">-- Choose a product --</option>
                           {platformProducts.map(p => (
                             <option key={p.id} value={p.id}>
-                              {p.name} (ID: {p.id})
+                              {p.title} (ID: {p.id })
                             </option>
                           ))}
                         </select>
