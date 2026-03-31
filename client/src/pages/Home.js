@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { getOptionValues } from '../utils/formatUtils';
 import './Home.css';
-import { BACKEND_URL } from '../config';
 
 function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOptions, updateSelectedImage }) {
   const [products, setProducts] = useState([]);
@@ -17,7 +16,7 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
   const [modalImageIndex, setModalImageIndex] = useState(0);
 
   useEffect(() => {
-    axios.get(`${BACKEND_URL}/products`).then(res => {
+    axios.get('http://localhost:5000/products').then(res => {
       setProducts(res.data);
       setLoading(false);
     }).catch(err => {
@@ -40,7 +39,6 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
         navigateModalImage(1);
       }
     };
-    
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [modalOpen]);
@@ -60,7 +58,22 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
     }
   };
 
-  // Handle main image click to open modal
+  // Helper to compute price based on selected options
+  const getProductPrice = (product, productOptions) => {
+    if (product.printfulConfig?.variants?.length) {
+      const selectedSize = productOptions.size;
+      const selectedColor = productOptions.color;
+      if (selectedSize && selectedColor) {
+        const matchingVariant = product.printfulConfig.variants.find(v =>
+          v.size === selectedSize && v.color === selectedColor
+        );
+        if (matchingVariant) return matchingVariant.price;
+      }
+      return product.printfulConfig.variants[0].price;
+    }
+    return product.promoPrice || product.price;
+  };
+
   const handleMainImageClick = (product, imageIndex) => {
     setModalImage(product.images[imageIndex]);
     setModalProductIndex(filteredProducts.indexOf(product));
@@ -68,11 +81,9 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
     setModalOpen(true);
   };
 
-  // Navigate modal images
   const navigateModalImage = (direction) => {
     const product = filteredProducts[modalProductIndex];
     if (!product || !product.images) return;
-    
     const newIndex = (modalImageIndex + direction + product.images.length) % product.images.length;
     setModalImage(product.images[newIndex]);
     setModalImageIndex(newIndex);
@@ -80,12 +91,9 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
 
   const renderOptionSelector = (product, optionType, label) => {
     const options = getOptionValues(product.options, optionType);
-    
     const optionKey = optionType === 'sizes' ? 'size' : 'color';
     const selectedValue = selectedOptions[product.id]?.[optionKey] || '';
-    
     if (options.length === 0) return null;
-    
     return (
       <div className="option-selector">
         <label className="option-label">
@@ -104,9 +112,6 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
               </option>
             ))}
           </select>
-          {/* <div className="select-arrow">
-            ▼
-          </div> */}
         </div>
       </div>
     );
@@ -114,7 +119,6 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
 
   const renderProductDetails = (product) => {
     const details = [];
-    
     if (product.weight) {
       details.push(
         <p key="weight" className="detail-item">
@@ -122,7 +126,6 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
         </p>
       );
     }
-    
     if (product.shippingNotes) {
       details.push(
         <p key="shipping" className="detail-item">
@@ -130,7 +133,6 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
         </p>
       );
     }
-    
     if (product.estimatedShipping) {
       details.push(
         <p key="estimated" className="detail-item detail-highlight">
@@ -138,7 +140,6 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
         </p>
       );
     }
-    
     if (product.category === 'supplements' && product.health) {
       if (product.health.dosage) {
         details.push(
@@ -163,48 +164,37 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
         );
       }
     }
-    
     return details.length > 0 ? (
       <div className="product-details">
         {details}
       </div>
     ) : null;
   };
-  
+
   const handleAddToCart = (product) => {
     const productOptions = selectedOptions[product.id] || {};
-    
     let missingOptions = [];
-    
-    // Get available options directly from product
     const availableSizes = getOptionValues(product.options, 'sizes');
     const availableColors = getOptionValues(product.options, 'colors');
-    
-    // Check if sizes exist and if one is selected
+
     if (availableSizes.length > 0 && (!productOptions.size || productOptions.size === '')) {
       missingOptions.push('size');
     }
-    
-    // Check if colors exist and if one is selected
     if (availableColors.length > 0 && (!productOptions.color || productOptions.color === '')) {
       missingOptions.push('color');
     }
-    
+
     if (missingOptions.length > 0) {
       const errorMessage = `Please select: ${missingOptions.join(' and ')}`;
-      if (window.showNotification) {
-        window.showNotification(errorMessage, 'error');
-      }
+      if (window.showNotification) window.showNotification(errorMessage, 'error');
       return;
     }
-    
-    // Add to cart
-    addToCart(product, 1, productOptions);
-    
+
+    const finalPrice = getProductPrice(product, productOptions);
+    addToCart({ ...product, selectedPrice: finalPrice }, 1, productOptions);
+
     // Reset selections for this product
     updateSelectedOptions(product.id, { size: '', color: '' });
-    
-    // Reset image to first image
     if (product.images && product.images.length > 0) {
       updateSelectedImage(product.id, product.images[0]);
     }
@@ -222,7 +212,7 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
   return (
     <div className="home-container">
       <h1 className="home-title">Our Products</h1>
-      
+
       <div className="category-tabs">
         {categories.map(cat => (
           <button 
@@ -243,8 +233,9 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
       ) : (
         <div className="products-grid">
           {filteredProducts.map(p => {
-            const options = selectedOptions[p.id] || {};
+            const productOptions = selectedOptions[p.id] || {};
             const mainImage = selectedImages[p.id] || (p.images?.[0] || '');
+            const displayPrice = getProductPrice(p, productOptions);
 
             return (
               <div key={p.id} className="product-card">
@@ -255,7 +246,6 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
                     className="product-main-image"
                     onClick={() => handleMainImageClick(p, p.images.indexOf(mainImage))}
                   />
-                  
                   {p.images && p.images.length > 1 && (
                     <div className="product-thumbnails">
                       {p.images.map((img, idx) => (
@@ -264,9 +254,7 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
                           src={img} 
                           alt={`Thumbnail ${idx}`} 
                           className={`product-thumbnail ${img === mainImage ? 'active' : ''}`}
-                          onClick={() => {
-                            updateSelectedImage(p.id, img);
-                          }}
+                          onClick={() => updateSelectedImage(p.id, img)}
                         />
                       ))}
                     </div>
@@ -275,26 +263,17 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
 
                 <div className="product-info">
                   <h3 className="product-name">{p.name}</h3>
-                  
                   <div className="product-header-meta">
-                    <span className="product-type-badge">
-                      {p.type}
-                    </span>
-                    <span className="product-provider">
-                      {p.provider}
-                    </span>
+                    <span className="product-type-badge">{p.type}</span>
+                    <span className="product-provider">{p.provider}</span>
                   </div>
-                  
                   <p className="product-description">
                     {p.description || 'No description available.'}
                   </p>
-                  
                   <p className="product-price">
-                    ${p.promoPrice || p.price} 
-                    {p.promoPrice && (
-                      <span className="original-price">
-                        ${p.price}
-                      </span>
+                    ${displayPrice.toFixed(2)}
+                    {p.promoPrice && !p.printfulConfig && (
+                      <span className="original-price">${p.price}</span>
                     )}
                   </p>
 
@@ -302,6 +281,50 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
                   {renderOptionSelector(p, 'colors', 'Color')}
 
                   {renderProductDetails(p)}
+
+                  {/* New row with Details and Share */}
+                  <div className="product-action-row" style={{ display: 'flex', gap: '12px', marginBottom: '16px', marginTop: '12px', alignItems: 'center' }}>
+                    <button 
+                      onClick={() => window.location.href = `/product/${p.id}`}
+                      className="detail-badge"
+                      style={{ 
+                        background: '#333', 
+                        color: '#fff', 
+                        padding: '4px 12px', 
+                        borderRadius: '20px', 
+                        fontSize: '12px', 
+                        border: 'none', 
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      🔍 Details
+                    </button>
+                    <button 
+                      onClick={() => {
+                        const url = `${window.location.origin}/product/${p.id}`;
+                        navigator.clipboard.writeText(url);
+                        if (window.showNotification) window.showNotification('Link copied to clipboard!', 'success');
+                      }}
+                      className="share-badge"
+                      style={{ 
+                        background: '#333', 
+                        color: '#fff', 
+                        padding: '4px 12px', 
+                        borderRadius: '20px', 
+                        fontSize: '12px', 
+                        border: 'none', 
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      📤 Share
+                    </button>
+                  </div>
                 </div>
 
                 <button 
@@ -333,13 +356,11 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
             >
               ✕
             </button>
-            
             <img 
               src={modalImage} 
               alt="Full size product view" 
               className="modal-full-image"
             />
-            
             <div className="modal-navigation">
               <button 
                 className="modal-nav-btn prev"
@@ -348,11 +369,9 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
               >
                 ‹
               </button>
-              
               <span className="modal-image-counter">
                 {modalImageIndex + 1} / {filteredProducts[modalProductIndex]?.images?.length || 0}
               </span>
-              
               <button 
                 className="modal-nav-btn next"
                 onClick={() => navigateModalImage(1)}
@@ -361,7 +380,6 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
                 ›
               </button>
             </div>
-            
             <div className="modal-escape-hint">
               Press ESC to close
             </div>

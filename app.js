@@ -15,7 +15,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-const storeId = process.env.PRINTFUL_STORE_ID;
+
 const PORT = 5000;
 
 // Paths
@@ -37,6 +37,19 @@ console.log('Checking directories...');
     console.log(`Directory exists: ${dirPath}`);
   }
 });
+
+(!fs.existsSync(MEDIA_DIR))?( fs.mkdirSync(MEDIA_DIR), console.log(`Created: ${MEDIA_DIR}`)):( console.log(`Directory exists: ${MEDIA_DIR}`));
+
+function mapPrintfulCategory(printfulType) {
+  const typeLower = (printfulType || '').toLowerCase();
+  if (typeLower.includes('shirt') || typeLower.includes('hoodie') || typeLower.includes('sweatshirt') || typeLower.includes('hat'))
+    return 'clothing';
+  if (typeLower.includes('shoe')) return 'shoes';
+  if (typeLower.includes('sticker')) return 'stickers';
+  if (typeLower.includes('mug') || typeLower.includes('poster') || typeLower.includes('phone case') || typeLower.includes('tote'))
+    return 'accessory';
+  return 'clothing';
+}
 
 // EasyPost (optional)
 let easyPostClient = null;
@@ -331,6 +344,88 @@ app.get('/products', (req, res) => {
   }
 });
 
+// ======================
+// Printful Store Routes
+// ======================
+
+// Fetch all synced products (list for thumbnail gallery)
+app.get('/admin/printful/products', auth, admin, async (req, res) => {
+  try {
+    const apiKey = process.env.PRINTFUL_FULL_ACCESS_API_KEY;
+    const storeId = process.env.PRINTFUL_STORE_ID;
+    if (!apiKey || !storeId) {
+      return res.status(400).json({ msg: 'Printful API key or store ID not configured' });
+    }
+    const response = await axios.get('https://api.printful.com/store/products', {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+      params: { store_id: storeId }
+    });
+    
+    const products = response.data.result.map(p => ({
+      id: p.id,
+      name: p.name,
+      thumbnail: p.thumbnail_url,
+      description: p.name, // or you could add a separate description field
+      sync_product: p,
+      sync_variants: p.sync_variants
+    }));
+    res.json(products);
+  } catch (err) {
+    console.error('Printful store products error:', err.response?.data || err.message);
+    res.status(500).json({ msg: 'Failed to fetch Printful store products' });
+  }
+});
+
+app.get('/admin/printful/product/:productId', auth, admin, async (req, res) => {
+  try {
+    const apiKey = process.env.PRINTFUL_FULL_ACCESS_API_KEY;
+    const storeId = process.env.PRINTFUL_STORE_ID;
+    if (!apiKey || !storeId) {
+      return res.status(400).json({ msg: 'Printful API key or store ID not configured' });
+    }
+    const { productId } = req.params;
+    const response = await axios.get(`https://api.printful.com/store/products/${productId}`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+      params: { store_id: storeId }
+    });
+    const product = response.data.result;
+    const syncVariants = product.sync_variants || [];
+
+    // Build a clean variant list
+    const variants = syncVariants.map(v => ({
+      id: v.id,
+      variantId: v.variant_id,
+      size: v.size || 'One size',
+      color: v.color || '',
+      price: parseFloat(v.retail_price),
+      currency: v.currency,
+      sku: v.sku,
+      image: v.files?.find(f => f.type === 'preview')?.preview_url ||
+              v.files?.find(f => f.type === 'default')?.preview_url ||
+              product.sync_product.thumbnail_url,
+      availability_status: v.availability_status,
+      options: v.options || []
+    }));
+
+    const detailed = {
+      id: product.sync_product.id,
+      name: product.sync_product.name,
+      description: product.sync_product.name,
+      thumbnail: product.sync_product.thumbnail_url,
+      variants,
+      // Derived data for convenience
+      sizes: [...new Set(variants.map(v => v.size))],
+      colors: [...new Set(variants.map(v => v.color))],
+      images: variants.map(v => v.image).filter(Boolean).slice(0, 5)
+    };
+
+    res.json(detailed);
+  } catch (err) {
+    console.error('Printful product detail error:', err.response?.data || err.message);
+    res.status(500).json({ msg: 'Failed to fetch Printful product details' });
+  }
+});
+
 // Admin product CRUD
 app.post('/admin/products', auth, admin, (req, res) => {
   try {
@@ -406,125 +501,6 @@ app.put('/admin/products/:id', auth, admin, (req, res) => {
   }
 });
 
-app.delete('/admin/products/:id', auth, admin, (req, res) => {
-  const id = parseInt(req.params.id);
-  deleteEntity('product', id);
-  res.json({ msg: 'Product deleted' });
-});
-
-// Shipping preview
-app.post('/admin/shipping-preview', auth, admin, async (req, res) => {
-  const { weight, fromZip = '90210', toZip = '10001' } = req.body;
-  if (!weight || !easyPostClient) return res.status(400).json({ msg: 'Config missing' });
-
-  try {
-    const parcel = await easyPostClient.Parcel.create({ weight: weight * 16 });
-    const shipment = await easyPostClient.Shipment.create({
-      from_address: { zip: fromZip },
-      to_address: { zip: toZip },
-      parcel
-    });
-    const rates = shipment.rates.map(r => ({
-      carrier: r.carrier,
-      service: r.service,
-      rate: parseFloat(r.rate)
-    })).sort((a, b) => a.rate - b.rate);
-    const lowestRate = rates[0]?.rate || null;
-    res.json({ rates, lowestRate });
-  } catch (err) {
-    res.status(500).json({ msg: err.message });
-  }
-});
-
-// Printful products (catalog)
-app.get('/admin/printful/products', auth, admin, async (req, res) => {
-  try {
-    const apiKey = process.env.PRINTFUL_FULL_ACCESS_API_KEY;
-    if (!apiKey) {
-      return res.status(400).json({ msg: 'Printful API key not configured' });
-    }
-    const response = await axios.get(`https://api.printful.com/products`, {
-      headers: {
-        'Authorization': `Bearer ${apiKey}`
-      }
-    });
-    console.log('Printful API response:', response.data);
-    const products = response.data.result.map(p => ({
-      id: p.id,
-      name: p.name,
-      title: p.title,
-      thumbnail: p.thumbnail_url,
-      description: p.description,
-    }));
-
-    res.json(products);
-  } catch (err) {
-    console.error('Printful API error:', err.response?.data || err.message);
-    res.status(500).json({ msg: 'Failed to fetch Printful products' });
-  }
-});
-
-// Get detailed Printful product info (variants, images)
-app.get('/admin/printful/product/:productId', auth, admin, async (req, res) => {
-  try {
-    const apiKey = process.env.PRINTFUL_FULL_ACCESS_API_KEY;
-    if (!apiKey) {
-      return res.status(400).json({ msg: 'Printful API key not configured' });
-    }
-    const { productId } = req.params;
-    const response = await axios.get(`https://api.printful.com/products/${productId}`, {
-      headers: {
-        'Authorization': `Bearer ${apiKey}`
-      }
-    });
-    
-    const productData = response.data.result;
-    
-    // Extract variants (sizes, colors) and images
-    const variants = productData.variants || [];
-    const sizes = [...new Set(variants.map(v => v.size).filter(Boolean))];
-    const colors = [...new Set(variants.map(v => v.color).filter(Boolean))];
-    const images = variants.map(v => v.image).filter(Boolean);
-    // Also include main product image if available
-    if (productData.image && !images.includes(productData.image)) {
-      images.unshift(productData.image);
-    }
-
-    const detailedProduct = {
-      id: productData.id,
-      name: productData.name,
-      description: productData.description,
-      title: productData.title,
-      type: productData.type_name, // e.g., "T-Shirt"
-      category: mapPrintfulCategory(productData.type_name), // map to our categories
-      sizes,
-      colors,
-      images,
-      // Optionally include variant-specific images mapping
-      variantImages: buildVariantImages(variants)
-    };
-
-    res.json(detailedProduct);
-  } catch (err) {
-    console.error('Printful product detail error:', err.response?.data || err.message);
-    res.status(500).json({ msg: 'Failed to fetch Printful product details' });
-  }
-});
-
-// Helper to map Printful type to our category
-function mapPrintfulCategory(printfulType) {
-  const typeLower = (printfulType || '').toLowerCase();
-  if (typeLower.includes('shirt') || typeLower.includes('hoodie') || typeLower.includes('sweatshirt') || typeLower.includes('hat')) {
-    return 'clothing';
-  }
-  if (typeLower.includes('shoe')) return 'shoes';
-  if (typeLower.includes('sticker')) return 'stickers';
-  if (typeLower.includes('mug') || typeLower.includes('poster') || typeLower.includes('phone case') || typeLower.includes('tote')) {
-    return 'accessory';
-  }
-  return 'clothing'; // default
-}
-
 // Helper to build variantImages mapping (color -> image, size -> image)
 function buildVariantImages(variants) {
   const variantImages = { color: {}, size: {} };
@@ -591,6 +567,31 @@ app.get('/affiliate/link/:productId', auth, (req, res) => {
   const affiliateId = req.user.id;
   const link = `${clientURL}/product/${productId}?aff=${affiliateId}`;
   res.json({ link });
+});
+
+// ======================
+// DELETE Product (Admin Only)
+// ======================
+app.delete('/admin/products/:id', auth, admin, (req, res) => {
+  const id = parseInt(req.params.id);
+  
+  try {
+    const existing = loadEntity('product', id);
+    if (!existing) {
+      return res.status(404).json({ msg: 'Product not found' });
+    }
+
+    deleteEntity('product', id);
+    
+    // Optional: also clean up any linked media files if you want
+    // (for now we just delete the metadata)
+
+    console.log(`Product ${id} deleted by admin`);
+    res.json({ msg: 'Product deleted successfully' });
+  } catch (err) {
+    console.error('Delete product error:', err);
+    res.status(500).json({ msg: 'Failed to delete product' });
+  }
 });
 
 app.get('/affiliate/commission-data', auth, (req, res) => {

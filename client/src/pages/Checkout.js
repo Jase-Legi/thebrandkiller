@@ -469,7 +469,9 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
             <h2 className="section-title">Cart Items ({cart.length})</h2>
             
             {cart.map((item, index) => {
-              const price = parseFloat(item.promoPrice || item.price);
+              const price = parseFloat(
+                item.variantPrice || item.promoPrice || item.price
+              );
               const itemTotal = price * item.quantity;
               
               const itemImage = item.displayImage || item.images?.[0] || '';
