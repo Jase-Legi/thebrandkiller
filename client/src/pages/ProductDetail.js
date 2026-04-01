@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { useApp } from '../components/AppContext';
 import { getOptionValues } from '../utils/formatUtils';
 import './ProductDetail.css';
 
-function ProductDetail({ addToCart, selectedOptions, selectedImages, updateSelectedOptions, updateSelectedImage }) {
+function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
@@ -15,76 +15,29 @@ function ProductDetail({ addToCart, selectedOptions, selectedImages, updateSelec
   const [showImageModal, setShowImageModal] = useState(false);
   const [modalImageIndex, setModalImageIndex] = useState(0);
   const [currentPrice, setCurrentPrice] = useState(0);
+  const { products, loadingProducts, addToCart, selectedOptions, selectedImages, updateSelectedOptions, updateSelectedImage } = useApp();
 
-  console.log('🔄 ProductDetail component rendering');
 
-  // Fetch product data
   useEffect(() => {
-    console.log('📦 Fetching product...');
-    const fetchProduct = async () => {
-      try {
-        const res = await axios.get('http://localhost:5000/products');
-        const found = res.data.find(p => p.id === parseInt(id));
-        if (!found) {
-          navigate('/not-found');
-          return;
-        }
-        console.log('✅ Product loaded:', found);
-        setProduct(found);
-
-        // Initialize price from first variant or regular price
-        if (found.printfulConfig?.variants?.length) {
-          console.log('Found variants:', found.printfulConfig.variants);
-          setCurrentPrice(found.printfulConfig.variants[0].price);
-        } else {
-          setCurrentPrice(found.promoPrice || found.price);
-        }
-        setLoading(false);
-      } catch (err) {
-        console.error('Failed to load product:', err);
-        setError('Failed to load product');
-        setLoading(false);
-      }
-    };
-    fetchProduct();
-  }, [id, navigate]);
-
-  // Update price when selected options change – now depends on product.id's selected options
-  useEffect(() => {
-    console.log('🎯 Price update effect running');
-    if (!product) {
-      console.log('No product yet, skipping');
-      return;
+    if (!loadingProducts) {
+      const found = products.find(p => String(p.id) === id);
+      if (!found) navigate('/not-found');
+      else setProduct(found);
     }
+  }, [id, products, loadingProducts, navigate]);
 
+  // useEffect for price update based on selected options
+  useEffect(() => {
+    if (!product) return;
     const options = selectedOptions[product.id] || {};
-    const selectedSize = options.size ? options.size.trim().toLowerCase() : null;
-    const selectedColor = options.color ? options.color.trim().toLowerCase() : null;
-
-    console.log(`Selected size: ${selectedSize}, selected color: ${selectedColor}`);
-
+    const selectedSize = options.size;
+    const selectedColor = options.color;
     if (product.printfulConfig?.variants?.length) {
-      console.log('Variants available:', product.printfulConfig.variants);
-      const matchingVariant = product.printfulConfig.variants.find(v => {
-        const variantSize = v.size ? v.size.trim().toLowerCase() : null;
-        const variantColor = v.color ? v.color.trim().toLowerCase() : null;
-        return variantSize === selectedSize && variantColor === selectedColor;
-      });
-
-      if (matchingVariant) {
-        console.log('Matching variant found, setting price to', matchingVariant.price);
-        setCurrentPrice(matchingVariant.price);
-      } else {
-        console.log('No matching variant');
-        // If both selected but no match, fallback to first variant
-        if (selectedSize && selectedColor) {
-          setCurrentPrice(product.printfulConfig.variants[0].price);
-        }
-      }
-    } else {
-      console.log('No variants or printfulConfig missing');
+      const matchingVariant = product.printfulConfig.variants.find(v => v.size === selectedSize && v.color === selectedColor);
+      if (matchingVariant) setCurrentPrice(matchingVariant.price);
+      else if (selectedSize && selectedColor) setCurrentPrice(product.printfulConfig.variants[0].price);
     }
-  }, [selectedOptions, product]); // Keep full selectedOptions dependency for safety
+  }, [selectedOptions, product]);
 
   // Keyboard navigation for modal
   useEffect(() => {
@@ -102,10 +55,7 @@ function ProductDetail({ addToCart, selectedOptions, selectedImages, updateSelec
   }, [showImageModal, product]);
 
   const handleOptionChange = (type, value) => {
-    console.log(`🔄 Option changed: ${type} = ${value}`);
     updateSelectedOptions(product.id, { [type]: value });
-
-    // Update variant image if available
     if (type === 'color' && product.variantImages?.color?.[value]) {
       updateSelectedImage(product.id, product.variantImages.color[value]);
     } else if (type === 'size' && product.variantImages?.size?.[value]) {
@@ -123,11 +73,7 @@ function ProductDetail({ addToCart, selectedOptions, selectedImages, updateSelec
       <div className="option-selector-large">
         <label className="option-label-large">{label} <span className="required-star">*</span></label>
         <div className="select-wrapper">
-          <select
-            className="option-select-large"
-            value={selectedValue}
-            onChange={e => handleOptionChange(optionKey, e.target.value)}
-          >
+          <select className="option-select-large" value={selectedValue} onChange={e => handleOptionChange(optionKey, e.target.value)}>
             <option value="">Choose {label.toLowerCase()}</option>
             {options.map((option, index) => (
               <option key={`${option}-${index}`} value={option}>{option}</option>
@@ -141,26 +87,20 @@ function ProductDetail({ addToCart, selectedOptions, selectedImages, updateSelec
 
   const handleAddToCart = () => {
     const productOptions = selectedOptions[product.id] || {};
-    const missingOptions = [];
+    const selectedSize = productOptions.size;
+    const selectedColor = productOptions.color;
     const availableSizes = product.options?.sizes || [];
     const availableColors = product.options?.colors || [];
-
-    if (availableSizes.length > 0 && (!productOptions.size || productOptions.size === '')) {
-      missingOptions.push('size');
-    }
-    if (availableColors.length > 0 && (!productOptions.color || productOptions.color === '')) {
-      missingOptions.push('color');
-    }
-
-    if (missingOptions.length > 0) {
-      const errorMessage = `Please select: ${missingOptions.join(' and ')}`;
-      if (window.showNotification) window.showNotification(errorMessage, 'error');
+    if ((availableSizes.length > 0 && !selectedSize) || (availableColors.length > 0 && !selectedColor)) {
+      if (window.showNotification) window.showNotification('Please select size and color', 'error');
       return;
     }
-
-    addToCart({ ...product, selectedPrice: currentPrice }, quantity, productOptions);
-
-    // Reset selections for this product
+    const variant = product.variants?.find(v => v.size === selectedSize && v.color === selectedColor);
+    if (!variant) {
+      if (window.showNotification) window.showNotification('Selected variant not available', 'error');
+      return;
+    }
+    addToCart(product.id, variant.variantId, quantity);
     updateSelectedOptions(product.id, { size: '', color: '' });
     if (product.images && product.images.length > 0) {
       updateSelectedImage(product.id, product.images[0]);
@@ -168,8 +108,8 @@ function ProductDetail({ addToCart, selectedOptions, selectedImages, updateSelec
     }
   };
 
-  if (loading) return <div className="loading-state">Loading product...</div>;
-  if (!product) return <div className="error-state">Product not found</div>;
+  if (loadingProducts) return <div className="loading-state">Loading product...</div>;
+  if (!product) return null;
 
   const mainImage = selectedImages[product.id] || product.images?.[0] || '';
 

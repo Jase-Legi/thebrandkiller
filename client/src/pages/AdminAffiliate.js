@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { useApp } from '../components/AppContext';
 import { useNotifications } from '../components/NotificationManager';
 import './AdminAffiliate.css';
 
-function AdminAffiliate({ token, user, axiosInstance }) {
+function AdminAffiliate() {
+  // All hooks called unconditionally at the top
+  const { user, loadingUser, token, axiosInstance } = useApp();
+  const { showNotification, showConfirmation } = useNotifications();
+
+  // State declarations
   const [affiliates, setAffiliates] = useState([]);
   const [commissionSettings, setCommissionSettings] = useState({
     defaultRate: 0.10,
@@ -22,16 +28,7 @@ function AdminAffiliate({ token, user, axiosInstance }) {
     totalSalesGenerated: 0
   });
 
-  const { showNotification, showConfirmation } = useNotifications();
-
-  useEffect(() => {
-    if (user?.role === 'admin') {
-      fetchAffiliates();
-      fetchCommissionSettings();
-      fetchAffiliateStats();
-    }
-  }, [user]);
-
+  // Fetch functions
   const fetchAffiliates = async () => {
     setLoading(true);
     try {
@@ -146,6 +143,20 @@ function AdminAffiliate({ token, user, axiosInstance }) {
     });
   };
 
+  // Fetch data on mount if admin
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      fetchAffiliates();
+      fetchCommissionSettings();
+      fetchAffiliateStats();
+    }
+  }, [user]);
+
+  // Conditional returns after all hooks
+  if (loadingUser) {
+    return <div className="loading-container">Loading...</div>;
+  }
+
   if (!user || user.role !== 'admin') {
     return (
       <div className="admin-access-card">
@@ -155,6 +166,7 @@ function AdminAffiliate({ token, user, axiosInstance }) {
     );
   }
 
+  // JSX – same as originally provided
   return (
     <div className="admin-affiliate-container">
       <div className="admin-affiliate-header">
@@ -203,7 +215,6 @@ function AdminAffiliate({ token, user, axiosInstance }) {
       {showSettings && (
         <div className="commission-settings-section">
           <h2>Commission Settings</h2>
-          
           <div className="settings-form">
             <div className="settings-grid">
               <div className="setting-field">
@@ -220,7 +231,6 @@ function AdminAffiliate({ token, user, axiosInstance }) {
                   })}
                 />
               </div>
-              
               <div className="setting-field">
                 <label>Minimum Payout ($)</label>
                 <input 
@@ -234,7 +244,6 @@ function AdminAffiliate({ token, user, axiosInstance }) {
                   })}
                 />
               </div>
-              
               <div className="setting-field">
                 <label>Payout Schedule</label>
                 <select 
@@ -250,7 +259,6 @@ function AdminAffiliate({ token, user, axiosInstance }) {
                   <option value="quarterly">Quarterly</option>
                 </select>
               </div>
-              
               <div className="setting-field">
                 <label>Cookie Duration (Days)</label>
                 <input 
@@ -266,7 +274,6 @@ function AdminAffiliate({ token, user, axiosInstance }) {
                 />
               </div>
             </div>
-            
             <div className="setting-field full-width">
               <label>Terms & Conditions</label>
               <textarea 
@@ -279,7 +286,6 @@ function AdminAffiliate({ token, user, axiosInstance }) {
                 placeholder="Enter affiliate program terms and conditions..."
               />
             </div>
-            
             <div className="settings-actions">
               <button 
                 onClick={() => setShowSettings(false)}
@@ -393,7 +399,6 @@ function AdminAffiliate({ token, user, axiosInstance }) {
                             Approve
                           </button>
                         )}
-                        
                         {affiliate.status === 'active' && affiliate.pendingPayout > 0 && (
                           <button 
                             onClick={() => processPayout(affiliate.id)}
@@ -402,7 +407,6 @@ function AdminAffiliate({ token, user, axiosInstance }) {
                             Pay Out
                           </button>
                         )}
-                        
                         {affiliate.status === 'active' && (
                           <button 
                             onClick={() => suspendAffiliate(affiliate.id)}
@@ -411,7 +415,6 @@ function AdminAffiliate({ token, user, axiosInstance }) {
                             Suspend
                           </button>
                         )}
-                        
                         {affiliate.status === 'suspended' && (
                           <button 
                             onClick={() => approveAffiliate(affiliate.id)}
@@ -450,7 +453,6 @@ function AdminAffiliate({ token, user, axiosInstance }) {
                 ))}
             </div>
           </div>
-          
           <div className="report-card">
             <h3>Pending Payouts</h3>
             <div className="report-content">

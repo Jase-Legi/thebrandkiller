@@ -574,24 +574,26 @@ app.get('/affiliate/link/:productId', auth, (req, res) => {
 // ======================
 app.delete('/admin/products/:id', auth, admin, (req, res) => {
   const id = parseInt(req.params.id);
-  
-  try {
-    const existing = loadEntity('product', id);
-    if (!existing) {
-      return res.status(404).json({ msg: 'Product not found' });
-    }
+  const product = loadEntity('product', id);
 
-    deleteEntity('product', id);
-    
-    // Optional: also clean up any linked media files if you want
-    // (for now we just delete the metadata)
-
-    console.log(`Product ${id} deleted by admin`);
-    res.json({ msg: 'Product deleted successfully' });
-  } catch (err) {
-    console.error('Delete product error:', err);
-    res.status(500).json({ msg: 'Failed to delete product' });
+  // Delete associated images
+  if (product && product.images && Array.isArray(product.images)) {
+    product.images.forEach(imageUrl => {
+      const filename = path.basename(imageUrl); // e.g., "image-123456.jpg"
+      const filePath = path.join(MEDIA_DIR, filename);
+      if (fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+          console.log(`Deleted image: ${filePath}`);
+        } catch (err) {
+          console.error(`Failed to delete ${filePath}:`, err);
+        }
+      }
+    });
   }
+
+  deleteEntity('product', id);
+  res.json({ msg: 'Product deleted' });
 });
 
 app.get('/affiliate/commission-data', auth, (req, res) => {

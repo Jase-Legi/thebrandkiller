@@ -1,0 +1,18 @@
+{
+  "id": 2,
+  "userId": 2,
+  "email": "awbyn@dick.com",
+  "status": "active",
+  "commissionRate": 0.1,
+  "totalCommissions": 0,
+  "pendingPayout": 0,
+  "commissions": [],
+  "referrals": [],
+  "joinedDate": "2026-04-01T14:20:09.001Z",
+  "lastPayoutDate": null,
+  "application": {
+    "date": "2026-04-01T14:20:09.001Z",
+    "status": "pending",
+    "notes": "Auto-generated from registration"
+  }
+}

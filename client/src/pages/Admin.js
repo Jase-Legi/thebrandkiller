@@ -1,26 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import './Admin.css';
+import { useApp } from '../components/AppContext';
 import { useNotifications } from '../components/NotificationManager';
+import './Admin.css';
 
-const merchTypes = [
-  { value: 'T-Shirt', category: 'clothing' },
-  { value: 'Hoodie', category: 'clothing' },
-  { value: 'Sweatshirt', category: 'clothing' },
-  { value: 'Tank Top', category: 'clothing' },
-  { value: 'Long Sleeve', category: 'clothing' },
-  { value: 'Sticker', category: 'stickers' },
-  { value: 'Shoes', category: 'shoes' },
-  { value: 'Health Supplement', category: 'supplements' },
-  { value: 'Mug', category: 'accessory' },
-  { value: 'Poster', category: 'accessory' },
-  { value: 'Phone Case', category: 'accessory' },
-  { value: 'Tote Bag', category: 'accessory' },
-  { value: 'Hat', category: 'clothing' },
-  { value: 'Notebook', category: 'accessory' },
-  { value: 'Water Bottle', category: 'accessory' },
-];
+function Admin() {
+  const { token, user, axiosInstance } = useApp();
+  const { showNotification, showConfirmation } = useNotifications();
+  
+  const merchTypes = [
+    { value: 'T-Shirt', category: 'clothing' },
+    { value: 'Hoodie', category: 'clothing' },
+    { value: 'Sweatshirt', category: 'clothing' },
+    { value: 'Tank Top', category: 'clothing' },
+    { value: 'Long Sleeve', category: 'clothing' },
+    { value: 'Sticker', category: 'stickers' },
+    { value: 'Shoes', category: 'shoes' },
+    { value: 'Health Supplement', category: 'supplements' },
+    { value: 'Mug', category: 'accessory' },
+    { value: 'Poster', category: 'accessory' },
+    { value: 'Phone Case', category: 'accessory' },
+    { value: 'Tote Bag', category: 'accessory' },
+    { value: 'Hat', category: 'clothing' },
+    { value: 'Notebook', category: 'accessory' },
+    { value: 'Water Bottle', category: 'accessory' },
+  ];
 
-function Admin({ token, user, axiosInstance }) {
   const [products, setProducts] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -47,7 +51,6 @@ function Admin({ token, user, axiosInstance }) {
   });
   const [loadingEditProduct, setLoadingEditProduct] = useState(false);
   const [printfulVariants, setPrintfulVariants] = useState([]);      // all variants from the selected product
-  const [selectedVariantId, setSelectedVariantId] = useState(null);  // which variant is currently chosen for base price
   const [variantPrices, setVariantPrices] = useState({});             // editable prices for each variant (keyed by variant id)
   const [imageFiles, setImageFiles] = useState([]);
   const [videoFile, setVideoFile] = useState(null);
@@ -82,8 +85,6 @@ function Admin({ token, user, axiosInstance }) {
   const [variantOptions, setVariantOptions] = useState({ sizes: [], colors: [] });
   const [collapsedCategories, setCollapsedCategories] = useState({});
   const [loadingDetails, setLoadingDetails] = useState(false);
-
-  const { showNotification, showConfirmation } = useNotifications();
   const minImagesRequired = form.options.colors.length > 0 ? form.options.colors.length : 4;
 
   useEffect(() => {
@@ -124,6 +125,10 @@ const fetchProducts = async () => {
   }
 };
 
+const generateLocalVariantId = () => {
+  const random = Math.floor(10000 + Math.random() * 90000).toString(); // 5 digits
+  return `loc${random}`;
+};
   const fetchPlatformProducts = async () => {
     setLoadingPlatformProducts(true);
     try {
@@ -744,64 +749,109 @@ const fetchAndSetPrintfulProductDetails = async (productId) => {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!validateStep()) return;
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  if (!validateStep()) return;
 
-    setSaving(true);
-    const imageUrls = imageFiles.map(img => img.preview);
-    const variantImages = { color: {}, size: {} };
-    imageFiles.forEach(img => {
-      if (img.linkedOptions) {
-        Object.entries(img.linkedOptions).forEach(([optionType, optionValue]) => {
-          if (optionType === 'color' || optionType === 'size') {
-            variantImages[optionType][optionValue] = img.preview;
-          }
-        });
-      }
-    });
-
-    const productData = {
-      ...form,
-      images: imageUrls,
-      variantImages,
-      health: form.category === 'supplements' ? form.health : { ingredients: [], dosage: '', form: '', allergens: [] },
-      platformProductId: form.platformProductId,
-      platformProductData: form.platformProductData,
-      printfulConfig: {
-        productId: selectedPrintfulProduct?.id,
-        variants: printfulVariants.map(v => ({
-          ...v,
-          price: variantPrices[v.id]   // store the edited price
-        }))
-      }
-    };
-
-    // Now update Printful config if needed (though it's already set above)
-    // Remove the earlier if block entirely, as it's redundant.
-
-    try {
-      if (editingProduct) {
-        await axiosInstance.put(`/admin/products/${editingProduct.id}`, productData);
-        showNotification('Product updated successfully!', 'success');
-      } else {
-        await axiosInstance.post('/admin/products', productData);
-        showNotification('Product added successfully!', 'success');
-      }
-
-      setTimeout(() => {
-        setShowForm(false);
-        setEditingProduct(null);
-        resetForm();
-        fetchProducts();
-      }, 2000);
-    } catch (err) {
-      console.error('Save failed:', err);
-      showNotification(err.response?.data?.msg || 'Server error. Try again.', 'error');
-    } finally {
-      setSaving(false);
+  setSaving(true);
+  const imageUrls = imageFiles.map(img => img.preview);
+  const variantImages = { color: {}, size: {} };
+  imageFiles.forEach(img => {
+    if (img.linkedOptions) {
+      Object.entries(img.linkedOptions).forEach(([optionType, optionValue]) => {
+        if (optionType === 'color' || optionType === 'size') {
+          variantImages[optionType][optionValue] = img.preview;
+        }
+      });
     }
+  });
+
+  // Build variants array
+  let variants = [];
+  if (form.provider === 'printful' && printfulVariants.length) {
+    // Use existing Printful variants (already have variantId, size, color, price)
+    variants = printfulVariants.map(v => ({
+      variantId: v.id,                    // Printful variant ID
+      productId: selectedPrintfulProduct?.id,
+      size: v.size,
+      color: v.color,
+      price: variantPrices[v.id] || v.price,
+      sku: v.sku,
+      image: v.image,
+    }));
+  } else {
+    // Local product – create variants for each combination of selected sizes and colors
+    const sizes = form.options.sizes;
+    const colors = form.options.colors;
+    // If no colors, treat as single variant (size only)
+    if (colors.length === 0) {
+      // Single variant per size
+      sizes.forEach(size => {
+        variants.push({
+          variantId: generateLocalVariantId(),
+          productId: null, // will be assigned after product is saved
+          size: size,
+          color: '',
+          price: parseFloat(form.price),
+          sku: '',
+          image: imageUrls[0] || '',
+        });
+      });
+    } else {
+      // All size/color combinations
+      sizes.forEach(size => {
+        colors.forEach(color => {
+          variants.push({
+            variantId: generateLocalVariantId(),
+            productId: null,
+            size: size,
+            color: color,
+            price: parseFloat(form.price),
+            sku: '',
+            image: imageUrls[0] || '',
+          });
+        });
+      });
+    }
+  }
+
+  const productData = {
+    ...form,
+    images: imageUrls,
+    variantImages,
+    health: form.category === 'supplements' ? form.health : { ingredients: [], dosage: '', form: '', allergens: [] },
+    platformProductId: form.platformProductId,
+    platformProductData: form.platformProductData,
+    variants,   // store the variants array
+    // For Printful, keep printfulConfig if needed (optional)
+    printfulConfig: form.provider === 'printful' ? {
+      productId: selectedPrintfulProduct?.id,
+      variants: variants
+    } : null,
   };
+
+  try {
+    if (editingProduct) {
+      await axiosInstance.put(`/admin/products/${editingProduct.id}`, productData);
+      showNotification('Product updated successfully!', 'success');
+    } else {
+      await axiosInstance.post('/admin/products', productData);
+      showNotification('Product added successfully!', 'success');
+    }
+
+    setTimeout(() => {
+      setShowForm(false);
+      setEditingProduct(null);
+      resetForm();
+      fetchProducts();
+    }, 2000);
+  } catch (err) {
+    console.error('Save failed:', err);
+    showNotification(err.response?.data?.msg || 'Server error. Try again.', 'error');
+  } finally {
+    setSaving(false);
+  }
+};
 
   const selectedType = merchTypes.find(t => t.value === form.type) || {};
   const isApparel = ['clothing', 'shoes'].includes(selectedType.category);

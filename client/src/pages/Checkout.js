@@ -1,14 +1,16 @@
+import React, { useState, useEffect } from 'react';
 import { CardElement, useStripe, useElements, PaymentRequestButtonElement } from '@stripe/react-stripe-js';
 import { ethers } from 'ethers';
-import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useApp } from '../components/AppContext';
 import { useNotifications } from '../components/NotificationManager';
 import './Checkout.css';
 
-function Checkout({ cart, setCart, token, axiosInstance }) {
+function Checkout() {
   const stripe = useStripe();
   const elements = useElements();
   const navigate = useNavigate();
+  const { cart, setCart, updateCartItem, removeCartItem, clearCart, token, axiosInstance } = useApp();
   const { showNotification, showConfirmation } = useNotifications();
 
   const [paymentMethod, setPaymentMethod] = useState('stripe');
@@ -20,7 +22,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
     zip: '', 
     country: 'US' 
   });
-  
   const [processing, setProcessing] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [orderId, setOrderId] = useState(null);
@@ -28,9 +29,8 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
   const [paymentRequest, setPaymentRequest] = useState(null);
   const [walletAvailable, setWalletAvailable] = useState(false);
   const [stripeError, setStripeError] = useState(null);
-  
-  // Check for affiliate ID in URL
   const [affiliateId, setAffiliateId] = useState(null);
+  
 
   useEffect(() => {
     // Check for affiliate ID in URL
@@ -354,19 +354,6 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
     else if (paymentMethod === 'eth') handleEth();
   };
 
-  const clearCart = () => {
-    showConfirmation(
-      'Clear Cart',
-      'Are you sure you want to remove all items from your cart?',
-      () => {
-        setCart([]);
-        localStorage.removeItem('cart');
-        showNotification('Cart cleared', 'info');
-      },
-      () => {}
-    );
-  };
-
   if (cart.length === 0 && !orderPlaced) {
     return (
       <div className="empty-cart">
@@ -474,16 +461,17 @@ function Checkout({ cart, setCart, token, axiosInstance }) {
               );
               const itemTotal = price * item.quantity;
               
-              const itemImage = item.displayImage || item.images?.[0] || '';
+              const itemImage = item.image || item.images?.[0] || '';
               
               return (
                 <div key={index} className={`cart-item ${showEditItem === index ? 'editing' : ''}`}>
                   <div className="cart-item-content">
                     <div className="item-image-container">
-                      <img 
-                        src={itemImage} 
+                      <img
+                        src={itemImage || '/placeholder-image.jpg'}
                         alt={item.name}
                         className="item-image"
+                        onError={(e) => { e.target.onerror = null; e.target.src = '/placeholder-image.jpg'; }}
                       />
                     </div>
                     

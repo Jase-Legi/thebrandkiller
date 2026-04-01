@@ -1,64 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useApp } from '../components/AppContext';
 import { getOptionValues } from '../utils/formatUtils';
 import './Home.css';
 
-function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOptions, updateSelectedImage }) {
-  const [products, setProducts] = useState([]);
+function Home() {
+  const { products, addToCart, selectedOptions, selectedImages, updateSelectedOptions, updateSelectedImage } = useApp();
   const [activeTab, setActiveTab] = useState('all');
-  const [loading, setLoading] = useState(true);
-  const [errors, setErrors] = useState({});
-
-  // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [modalImage, setModalImage] = useState('');
   const [modalProductIndex, setModalProductIndex] = useState(0);
   const [modalImageIndex, setModalImageIndex] = useState(0);
 
-  useEffect(() => {
-    axios.get('http://localhost:5000/products').then(res => {
-      setProducts(res.data);
-      setLoading(false);
-    }).catch(err => {
-      console.error('Failed to load products:', err);
-      setErrors({ general: 'Failed to load products' });
-      setLoading(false);
-    });
-  }, []);
-
-  // Keyboard shortcuts for modal
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && modalOpen) {
-        setModalOpen(false);
-      }
-      if (e.key === 'ArrowLeft' && modalOpen) {
-        navigateModalImage(-1);
-      }
-      if (e.key === 'ArrowRight' && modalOpen) {
-        navigateModalImage(1);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modalOpen]);
-
+  // Categories for tabs
   const categories = ['all', 'clothing', 'stickers', 'shoes', 'supplements', 'accessory'];
+  const filteredProducts = activeTab === 'all' ? products : products.filter(p => p.category === activeTab);
 
-  const filteredProducts = activeTab === 'all' 
-    ? products 
-    : products.filter(p => p.category === activeTab);
+  // Loading state – if products not yet loaded, show loading
+  const loading = products.length === 0;
 
+  // Option handler
   const handleOptionChange = (productId, optionType, value) => {
     updateSelectedOptions(productId, { [optionType]: value });
-
     const product = products.find(p => p.id === productId);
-    if (product.variantImages?.[optionType]?.[value]) {
+    if (product?.variantImages?.[optionType]?.[value]) {
       updateSelectedImage(productId, product.variantImages[optionType][value]);
     }
   };
 
-  // Helper to compute price based on selected options
+  // Helper to compute current price based on selected options
   const getProductPrice = (product, productOptions) => {
     if (product.printfulConfig?.variants?.length) {
       const selectedSize = productOptions.size;
@@ -74,6 +43,33 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
     return product.promoPrice || product.price;
   };
 
+  // Add to cart with selected variant
+  const handleAddToCart = (product) => {
+    const productOptions = selectedOptions[product.id] || {};
+    const selectedSize = productOptions.size;
+    const selectedColor = productOptions.color;
+
+    const availableSizes = getOptionValues(product.options, 'sizes');
+    const availableColors = getOptionValues(product.options, 'colors');
+    if ((availableSizes.length > 0 && !selectedSize) || (availableColors.length > 0 && !selectedColor)) {
+      if (window.showNotification) window.showNotification('Please select size and color', 'error');
+      return;
+    }
+
+    const variant = product.variants?.find(v => v.size === selectedSize && v.color === selectedColor);
+    if (!variant) {
+      if (window.showNotification) window.showNotification('Selected variant not available', 'error');
+      return;
+    }
+
+    addToCart(product.id, variant.variantId, 1);
+    updateSelectedOptions(product.id, { size: '', color: '' });
+    if (product.images && product.images.length > 0) {
+      updateSelectedImage(product.id, product.images[0]);
+    }
+  };
+
+  // Modal functions
   const handleMainImageClick = (product, imageIndex) => {
     setModalImage(product.images[imageIndex]);
     setModalProductIndex(filteredProducts.indexOf(product));
@@ -89,6 +85,18 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
     setModalImageIndex(newIndex);
   };
 
+  // Keyboard shortcuts for modal
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && modalOpen) setModalOpen(false);
+      if (e.key === 'ArrowLeft' && modalOpen) navigateModalImage(-1);
+      if (e.key === 'ArrowRight' && modalOpen) navigateModalImage(1);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modalOpen]);
+
+  // Option selector renderer
   const renderOptionSelector = (product, optionType, label) => {
     const options = getOptionValues(product.options, optionType);
     const optionKey = optionType === 'sizes' ? 'size' : 'color';
@@ -96,20 +104,16 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
     if (options.length === 0) return null;
     return (
       <div className="option-selector">
-        <label className="option-label">
-          {label} <span className="required-star">*</span>
-        </label>
+        <label className="option-label">{label} <span className="required-star">*</span></label>
         <div className="select-wrapper">
-          <select 
+          <select
             className="option-select"
             value={selectedValue}
             onChange={e => handleOptionChange(product.id, optionKey, e.target.value)}
           >
             <option value="">Select {label}</option>
             {options.map((option, index) => (
-              <option key={`${option}-${index}`} value={option}>
-                {option}
-              </option>
+              <option key={`${option}-${index}`} value={option}>{option}</option>
             ))}
           </select>
         </div>
@@ -117,87 +121,18 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
     );
   };
 
+  // Additional product details renderer (optional)
   const renderProductDetails = (product) => {
     const details = [];
-    if (product.weight) {
-      details.push(
-        <p key="weight" className="detail-item">
-          Weight: {product.weight} lbs
-        </p>
-      );
-    }
-    if (product.shippingNotes) {
-      details.push(
-        <p key="shipping" className="detail-item">
-          Shipping: {product.shippingNotes}
-        </p>
-      );
-    }
-    if (product.estimatedShipping) {
-      details.push(
-        <p key="estimated" className="detail-item detail-highlight">
-          Est. Shipping: ${parseFloat(product.estimatedShipping).toFixed(2)}
-        </p>
-      );
-    }
+    if (product.weight) details.push(<p key="weight" className="detail-item">Weight: {product.weight} lbs</p>);
+    if (product.shippingNotes) details.push(<p key="shipping" className="detail-item">Shipping: {product.shippingNotes}</p>);
+    if (product.estimatedShipping) details.push(<p key="estimated" className="detail-item detail-highlight">Est. Shipping: ${parseFloat(product.estimatedShipping).toFixed(2)}</p>);
     if (product.category === 'supplements' && product.health) {
-      if (product.health.dosage) {
-        details.push(
-          <p key="dosage" className="detail-item detail-warning">
-            Dosage: {product.health.dosage}
-          </p>
-        );
-      }
-      if (product.health.form) {
-        details.push(
-          <p key="form" className="detail-item detail-warning">
-            Form: {product.health.form}
-          </p>
-        );
-      }
-      if (product.health.ingredients && product.health.ingredients.length > 0) {
-        details.push(
-          <p key="ingredients" className="detail-item detail-warning">
-            Ingredients: {product.health.ingredients.slice(0, 3).join(', ')}
-            {product.health.ingredients.length > 3 ? '...' : ''}
-          </p>
-        );
-      }
+      if (product.health.dosage) details.push(<p key="dosage" className="detail-item detail-warning">Dosage: {product.health.dosage}</p>);
+      if (product.health.form) details.push(<p key="form" className="detail-item detail-warning">Form: {product.health.form}</p>);
+      if (product.health.ingredients?.length) details.push(<p key="ingredients" className="detail-item detail-warning">Ingredients: {product.health.ingredients.slice(0, 3).join(', ')}{product.health.ingredients.length > 3 ? '...' : ''}</p>);
     }
-    return details.length > 0 ? (
-      <div className="product-details">
-        {details}
-      </div>
-    ) : null;
-  };
-
-  const handleAddToCart = (product) => {
-    const productOptions = selectedOptions[product.id] || {};
-    let missingOptions = [];
-    const availableSizes = getOptionValues(product.options, 'sizes');
-    const availableColors = getOptionValues(product.options, 'colors');
-
-    if (availableSizes.length > 0 && (!productOptions.size || productOptions.size === '')) {
-      missingOptions.push('size');
-    }
-    if (availableColors.length > 0 && (!productOptions.color || productOptions.color === '')) {
-      missingOptions.push('color');
-    }
-
-    if (missingOptions.length > 0) {
-      const errorMessage = `Please select: ${missingOptions.join(' and ')}`;
-      if (window.showNotification) window.showNotification(errorMessage, 'error');
-      return;
-    }
-
-    const finalPrice = getProductPrice(product, productOptions);
-    addToCart({ ...product, selectedPrice: finalPrice }, 1, productOptions);
-
-    // Reset selections for this product
-    updateSelectedOptions(product.id, { size: '', color: '' });
-    if (product.images && product.images.length > 0) {
-      updateSelectedImage(product.id, product.images[0]);
-    }
+    return details.length > 0 ? <div className="product-details">{details}</div> : null;
   };
 
   if (loading) {
@@ -212,14 +147,9 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
   return (
     <div className="home-container">
       <h1 className="home-title">Our Products</h1>
-
       <div className="category-tabs">
         {categories.map(cat => (
-          <button 
-            key={cat}
-            onClick={() => setActiveTab(cat)}
-            className={`category-tab ${activeTab === cat ? 'active' : ''}`}
-          >
+          <button key={cat} onClick={() => setActiveTab(cat)} className={`category-tab ${activeTab === cat ? 'active' : ''}`}>
             {cat === 'all' ? 'All Products' : cat.charAt(0).toUpperCase() + cat.slice(1)}
           </button>
         ))}
@@ -236,23 +166,22 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
             const productOptions = selectedOptions[p.id] || {};
             const mainImage = selectedImages[p.id] || (p.images?.[0] || '');
             const displayPrice = getProductPrice(p, productOptions);
-
             return (
               <div key={p.id} className="product-card">
                 <div className="product-image-container">
-                  <img 
-                    src={mainImage} 
-                    alt={p.name} 
+                  <img
+                    src={mainImage}
+                    alt={p.name}
                     className="product-main-image"
                     onClick={() => handleMainImageClick(p, p.images.indexOf(mainImage))}
                   />
                   {p.images && p.images.length > 1 && (
                     <div className="product-thumbnails">
                       {p.images.map((img, idx) => (
-                        <img 
-                          key={idx} 
-                          src={img} 
-                          alt={`Thumbnail ${idx}`} 
+                        <img
+                          key={idx}
+                          src={img}
+                          alt={`Thumbnail ${idx}`}
                           className={`product-thumbnail ${img === mainImage ? 'active' : ''}`}
                           onClick={() => updateSelectedImage(p.id, img)}
                         />
@@ -267,70 +196,39 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
                     <span className="product-type-badge">{p.type}</span>
                     <span className="product-provider">{p.provider}</span>
                   </div>
-                  <p className="product-description">
-                    {p.description || 'No description available.'}
-                  </p>
+                  <p className="product-description">{p.description || 'No description available.'}</p>
                   <p className="product-price">
                     ${displayPrice.toFixed(2)}
-                    {p.promoPrice && !p.printfulConfig && (
-                      <span className="original-price">${p.price}</span>
-                    )}
+                    {p.promoPrice && !p.printfulConfig && <span className="original-price">${p.price}</span>}
                   </p>
 
                   {renderOptionSelector(p, 'sizes', 'Size')}
                   {renderOptionSelector(p, 'colors', 'Color')}
-
                   {renderProductDetails(p)}
 
-                  {/* New row with Details and Share */}
                   <div className="product-action-row" style={{ display: 'flex', gap: '12px', marginBottom: '16px', marginTop: '12px', alignItems: 'center' }}>
-                    <button 
+                    <button
                       onClick={() => window.location.href = `/product/${p.id}`}
                       className="detail-badge"
-                      style={{ 
-                        background: '#333', 
-                        color: '#fff', 
-                        padding: '4px 12px', 
-                        borderRadius: '20px', 
-                        fontSize: '12px', 
-                        border: 'none', 
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px'
-                      }}
+                      style={{ background: '#333', color: '#fff', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', border: 'none', cursor: 'pointer' }}
                     >
                       🔍 Details
                     </button>
-                    <button 
+                    <button
                       onClick={() => {
                         const url = `${window.location.origin}/product/${p.id}`;
                         navigator.clipboard.writeText(url);
                         if (window.showNotification) window.showNotification('Link copied to clipboard!', 'success');
                       }}
                       className="share-badge"
-                      style={{ 
-                        background: '#333', 
-                        color: '#fff', 
-                        padding: '4px 12px', 
-                        borderRadius: '20px', 
-                        fontSize: '12px', 
-                        border: 'none', 
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px'
-                      }}
+                      style={{ background: '#333', color: '#fff', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', border: 'none', cursor: 'pointer' }}
                     >
                       📤 Share
                     </button>
                   </div>
                 </div>
 
-                <button 
-                  onClick={() => handleAddToCart(p)}
-                  className="add-to-cart-btn"
-                >
+                <button onClick={() => handleAddToCart(p)} className="add-to-cart-btn">
                   Add to Cart
                 </button>
               </div>
@@ -339,50 +237,18 @@ function Home({ addToCart, selectedOptions, selectedImages, updateSelectedOption
         </div>
       )}
 
-      {/* Enhanced Image Modal */}
+      {/* Image Modal */}
       {modalOpen && (
-        <div 
-          className="image-modal-overlay"
-          onClick={() => setModalOpen(false)}
-        >
-          <div 
-            className="image-modal-content"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button 
-              className="modal-close-btn"
-              onClick={() => setModalOpen(false)}
-              aria-label="Close modal"
-            >
-              ✕
-            </button>
-            <img 
-              src={modalImage} 
-              alt="Full size product view" 
-              className="modal-full-image"
-            />
+        <div className="image-modal-overlay" onClick={() => setModalOpen(false)}>
+          <div className="image-modal-content" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close-btn" onClick={() => setModalOpen(false)}>✕</button>
+            <img src={modalImage} alt="Full size product view" className="modal-full-image" />
             <div className="modal-navigation">
-              <button 
-                className="modal-nav-btn prev"
-                onClick={() => navigateModalImage(-1)}
-                aria-label="Previous image"
-              >
-                ‹
-              </button>
-              <span className="modal-image-counter">
-                {modalImageIndex + 1} / {filteredProducts[modalProductIndex]?.images?.length || 0}
-              </span>
-              <button 
-                className="modal-nav-btn next"
-                onClick={() => navigateModalImage(1)}
-                aria-label="Next image"
-              >
-                ›
-              </button>
+              <button className="modal-nav-btn prev" onClick={() => navigateModalImage(-1)}>‹</button>
+              <span className="modal-image-counter">{modalImageIndex + 1} / {filteredProducts[modalProductIndex]?.images?.length || 0}</span>
+              <button className="modal-nav-btn next" onClick={() => navigateModalImage(1)}>›</button>
             </div>
-            <div className="modal-escape-hint">
-              Press ESC to close
-            </div>
+            <div className="modal-escape-hint">Press ESC to close</div>
           </div>
         </div>
       )}

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useApp } from '../components/AppContext';
 import './Login.css';
 
-function Login({ onLogin, axiosInstance }) {
+function Login() {
+  const { login, axiosInstance } = useApp();
   const [isRegister, setIsRegister] = useState(false);
   const [form, setForm] = useState({ email: '', password: '' });
   const [mode, setMode] = useState('user');
@@ -22,48 +24,35 @@ function Login({ onLogin, axiosInstance }) {
 
   const validateForm = () => {
     const newErrors = {};
-    
     if (!form.email) {
       newErrors.email = 'Email is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
       newErrors.email = 'Please enter a valid email';
     }
-    
     if (!form.password) {
       newErrors.password = 'Password is required';
     } else if (form.password.length < 6) {
       newErrors.password = 'Password must be at least 6 characters';
     }
-    
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-    
+    if (!validateForm()) return;
     setLoading(true);
     setErrors({});
-    
     try {
       if (isRegister) {
-        // Handle registration
         await handleRegistration();
       } else {
-        // Handle login
         await handleLogin();
       }
     } catch (err) {
       const errorMsg = err.response?.data?.msg || err.message || 'Request failed';
       setErrors({ general: errorMsg });
-      
-      if (window.showNotification) {
-        window.showNotification(errorMsg, 'error');
-      }
+      if (window.showNotification) window.showNotification(errorMsg, 'error');
     } finally {
       setLoading(false);
     }
@@ -75,98 +64,73 @@ function Login({ onLogin, axiosInstance }) {
       password: form.password,
       roleRequested: mode
     });
-
-    onLogin(res.data.token, { email: form.email, role: res.data.role });
+    login(res.data.token, { email: form.email, role: res.data.role });
     navigate('/');
   };
 
   const handleRegistration = async () => {
     if (mode === 'admin') {
-      // Admin registration - use existing route
       const res = await axiosInstance.post('/register', {
         email: form.email,
         password: form.password,
         roleRequested: 'admin'
       });
-      
-      // Login after registration
       const loginRes = await axiosInstance.post('/login', {
         email: form.email,
         password: form.password,
         roleRequested: 'admin'
       });
-      
-      onLogin(loginRes.data.token, { email: form.email, role: loginRes.data.role });
+      login(loginRes.data.token, { email: form.email, role: loginRes.data.role });
       navigate('/');
-      
     } else if (mode === 'user') {
-      // Regular user or affiliate registration
       const roleRequested = accountType === 'affiliate' ? 'affiliate' : 'user';
-      
       const res = await axiosInstance.post('/register', {
         email: form.email,
         password: form.password,
-        roleRequested: roleRequested
+        roleRequested
       });
       
-      // If affiliate registration, create affiliate record
+      // If affiliate registration, create affiliate record (optional)
       if (accountType === 'affiliate') {
         try {
-          // Get token for affiliate registration
-          const loginRes = await axiosInstance.post('/login', {
+          // Get a temporary token for the just‑registered user
+          const tempLogin = await axiosInstance.post('/login', {
             email: form.email,
             password: form.password,
-            roleRequested: 'user' // Temporary role for affiliate registration
+            roleRequested: 'user'
           });
+          // Set the token for the next request
+          axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${tempLogin.data.token}`;
           
-          // Save token temporarily
-          const tempToken = loginRes.data.token;
-          const tempAxios = axiosInstance;
-          tempAxios.defaults.headers.common['Authorization'] = `Bearer ${tempToken}`;
-          
-          // Register as affiliate
-          await tempAxios.post('/register-affiliate');
-          
-          showNotification('Affiliate registration submitted for approval!', 'success');
+          await axiosInstance.post('/register-affiliate');
+          window.showNotification('Affiliate registration submitted for approval!', 'success');
         } catch (affiliateErr) {
           console.error('Affiliate registration error:', affiliateErr);
-          // Continue with regular registration even if affiliate registration fails
+          const errorMsg = affiliateErr.response?.data?.msg || 'Failed to register as affiliate';
+          window.showNotification(errorMsg, 'error');
+          // Continue with regular registration anyway
         }
       }
-      
-      // Login after registration
       const loginRes = await axiosInstance.post('/login', {
         email: form.email,
         password: form.password,
-        roleRequested: roleRequested
+        roleRequested
       });
-      
-      onLogin(loginRes.data.token, { email: form.email, role: loginRes.data.role });
-      
-      // Show appropriate message
-      if (accountType === 'affiliate') {
-        showNotification(`Welcome! Your ${roleRequested} account has been created. Affiliate status pending approval.`, 'success');
-      } else {
-        showNotification(`Welcome! Your ${roleRequested} account has been created.`, 'success');
-      }
-      
+      login(loginRes.data.token, { email: form.email, role: loginRes.data.role });
+      const msg = accountType === 'affiliate'
+        ? `Welcome! Your ${roleRequested} account has been created. Affiliate status pending approval.`
+        : `Welcome! Your ${roleRequested} account has been created.`;
+      window.showNotification(msg, 'success');
       navigate('/');
-    }
-  };
-
-  const showNotification = (message, type) => {
-    if (window.showNotification) {
-      window.showNotification(message, type);
     }
   };
 
   const handleInputChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
-    // Clear error for this field when user starts typing
-    if (errors[field]) {
-      setErrors(prev => ({ ...prev, [field]: '' }));
-    }
+    if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
   };
+
+  // Render JSX unchanged except removing onLogin prop and using login function
 
   return (
     <div className="login-container">
